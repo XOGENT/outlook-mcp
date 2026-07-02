@@ -7,7 +7,8 @@ describe('MCP Prompts', () => {
             const result = await getPrompt('check_recent_unread');
             expect(result.messages).toHaveLength(1);
             expect(result.messages[0].role).toBe('user');
-            expect(result.messages[0].content.text).toContain('unread emails received in the last 36 hours');
+            expect(result.messages[0].content.text).toContain('outlook_search_emails');
+            expect(result.messages[0].content.text).toContain('last 36 hours');
         });
     });
 

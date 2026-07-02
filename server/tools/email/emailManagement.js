@@ -1,10 +1,12 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
 import { createSafeResponse } from '../../utils/jsonUtils.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Email management operations (move, delete, flag, categorize, archive, batch processing)
 
 // Delete email (soft delete to Deleted Items or permanent delete)
-export async function deleteEmailTool(authManager, args) {
+export async function deleteEmailTool(registry, args) {
   const { messageId, permanentDelete = false } = args;
 
   if (!messageId) {
@@ -12,12 +14,18 @@ export async function deleteEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     if (permanentDelete) {
       // Permanently delete the email
-      await graphApiClient.makeRequest(`/me/messages/${messageId}`, {}, 'DELETE');
+      await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {}, 'DELETE');
       
       return {
         content: [
@@ -30,7 +38,7 @@ export async function deleteEmailTool(authManager, args) {
     } else {
       // Move to Deleted Items folder (soft delete)
       // First get the Deleted Items folder ID
-      const foldersResult = await graphApiClient.makeRequest('/me/mailFolders', {
+      const foldersResult = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders`, {
         filter: "displayName eq 'Deleted Items'"
       });
       
@@ -40,7 +48,7 @@ export async function deleteEmailTool(authManager, args) {
       }
 
       // Move the message to Deleted Items
-      await graphApiClient.postWithRetry(`/me/messages/${messageId}/move`, {
+      await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/move`, {
         destinationId: deletedItemsFolderId
       });
 
@@ -59,7 +67,7 @@ export async function deleteEmailTool(authManager, args) {
 }
 
 // Move email to a specific folder
-export async function moveEmailTool(authManager, args) {
+export async function moveEmailTool(registry, args) {
   const { messageId, destinationFolderId } = args;
 
   if (!messageId) {
@@ -71,10 +79,16 @@ export async function moveEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/move`, {
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/move`, {
       destinationId: destinationFolderId
     });
 
@@ -92,7 +106,7 @@ export async function moveEmailTool(authManager, args) {
 }
 
 // Mark email as read or unread
-export async function markAsReadTool(authManager, args) {
+export async function markAsReadTool(registry, args) {
   const { messageId, isRead = true } = args;
 
   if (!messageId) {
@@ -100,10 +114,16 @@ export async function markAsReadTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
-    await graphApiClient.makeRequest(`/me/messages/${messageId}`, {
+    await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {
       body: { isRead: isRead }
     }, 'PATCH');
 
@@ -121,7 +141,7 @@ export async function markAsReadTool(authManager, args) {
 }
 
 // Flag email
-export async function flagEmailTool(authManager, args) {
+export async function flagEmailTool(registry, args) {
   const { messageId, flagStatus = 'flagged' } = args;
 
   if (!messageId) {
@@ -133,10 +153,16 @@ export async function flagEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
-    await graphApiClient.makeRequest(`/me/messages/${messageId}`, {
+    await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {
       body: {
         flag: {
           flagStatus: flagStatus
@@ -158,7 +184,7 @@ export async function flagEmailTool(authManager, args) {
 }
 
 // Categorize email
-export async function categorizeEmailTool(authManager, args) {
+export async function categorizeEmailTool(registry, args) {
   const { messageId, categories = [] } = args;
 
   if (!messageId) {
@@ -170,10 +196,16 @@ export async function categorizeEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
-    await graphApiClient.makeRequest(`/me/messages/${messageId}`, {
+    await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {
       body: { categories: categories }
     }, 'PATCH');
 
@@ -191,7 +223,7 @@ export async function categorizeEmailTool(authManager, args) {
 }
 
 // Archive email
-export async function archiveEmailTool(authManager, args) {
+export async function archiveEmailTool(registry, args) {
   const { messageId } = args;
 
   if (!messageId) {
@@ -199,11 +231,17 @@ export async function archiveEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     // First try to find the Archive folder
-    const foldersResult = await graphApiClient.makeRequest('/me/mailFolders', {
+    const foldersResult = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders`, {
       filter: "displayName eq 'Archive'"
     });
     
@@ -213,7 +251,7 @@ export async function archiveEmailTool(authManager, args) {
     }
 
     // Move the message to Archive
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/move`, {
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/move`, {
       destinationId: archiveFolderId
     });
 
@@ -231,7 +269,7 @@ export async function archiveEmailTool(authManager, args) {
 }
 
 // Batch process emails
-export async function batchProcessEmailsTool(authManager, args) {
+export async function batchProcessEmailsTool(registry, args) {
   const { messageIds, operation, operationData = {} } = args;
 
   if (!messageIds || !Array.isArray(messageIds) || messageIds.length === 0) {
@@ -248,8 +286,14 @@ export async function batchProcessEmailsTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const results = [];
     const errors = [];
@@ -261,29 +305,29 @@ export async function batchProcessEmailsTool(authManager, args) {
         
         switch (operation) {
           case 'markAsRead':
-            await graphApiClient.makeRequest(`/me/messages/${messageId}`, { body: { isRead: true } }, 'PATCH');
+            await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, { body: { isRead: true } }, 'PATCH');
             result = { messageId, status: 'success', operation: 'marked as read' };
             break;
             
           case 'markAsUnread':
-            await graphApiClient.makeRequest(`/me/messages/${messageId}`, { body: { isRead: false } }, 'PATCH');
+            await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, { body: { isRead: false } }, 'PATCH');
             result = { messageId, status: 'success', operation: 'marked as unread' };
             break;
             
           case 'delete':
             if (operationData.permanentDelete) {
-              await graphApiClient.makeRequest(`/me/messages/${messageId}`, {}, 'DELETE');
+              await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {}, 'DELETE');
               result = { messageId, status: 'success', operation: 'permanently deleted' };
             } else {
               // Find Deleted Items folder
-              const foldersResult = await graphApiClient.makeRequest('/me/mailFolders', {
+              const foldersResult = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders`, {
                 filter: "displayName eq 'Deleted Items'"
               });
               let deletedItemsFolderId = 'deleteditems';
               if (foldersResult.value && foldersResult.value.length > 0) {
                 deletedItemsFolderId = foldersResult.value[0].id;
               }
-              await graphApiClient.postWithRetry(`/me/messages/${messageId}/move`, {
+              await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/move`, {
                 destinationId: deletedItemsFolderId
               });
               result = { messageId, status: 'success', operation: 'moved to deleted items' };
@@ -294,7 +338,7 @@ export async function batchProcessEmailsTool(authManager, args) {
             if (!operationData.destinationFolderId) {
               return createValidationError('destinationFolderId', 'Required for move operation');
             }
-            await graphApiClient.postWithRetry(`/me/messages/${messageId}/move`, {
+            await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/move`, {
               destinationId: operationData.destinationFolderId
             });
             result = { messageId, status: 'success', operation: `moved to folder ${operationData.destinationFolderId}` };
@@ -302,7 +346,7 @@ export async function batchProcessEmailsTool(authManager, args) {
             
           case 'flag':
             const flagStatus = operationData.flagStatus || 'flagged';
-            await graphApiClient.makeRequest(`/me/messages/${messageId}`, {
+            await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {
               body: { flag: { flagStatus } }
             }, 'PATCH');
             result = { messageId, status: 'success', operation: `flagged as ${flagStatus}` };
@@ -310,7 +354,7 @@ export async function batchProcessEmailsTool(authManager, args) {
             
           case 'categorize':
             const categories = operationData.categories || [];
-            await graphApiClient.makeRequest(`/me/messages/${messageId}`, {
+            await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, {
               body: { categories }
             }, 'PATCH');
             result = { messageId, status: 'success', operation: `categorized as ${categories.join(', ')}` };

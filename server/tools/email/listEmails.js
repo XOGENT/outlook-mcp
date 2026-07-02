@@ -2,13 +2,16 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
 import { createSafeResponse, safeStringify } from '../../utils/jsonUtils.js';
 import { stripHtml, truncateText } from '../../utils/textUtils.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
-export async function listEmailsTool(authManager, args) {
+export async function listEmailsTool(registry, args) {
   const { folder = 'inbox', limit = 10, filter } = args;
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager, account: _account } = await registry.resolve(args.account);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
     const folderResolver = graphApiClient.getFolderResolver();
 
     // Resolve folder name to ID
@@ -29,7 +32,7 @@ export async function listEmailsTool(authManager, args) {
       options.filter = filter;
     }
 
-    const result = await graphApiClient.makeRequest(`/me/mailFolders/${folderId}/messages`, options);
+    const result = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders/${folderId}/messages`, options);
 
     // Handle MCP error responses from makeRequest
     if (result.content && result.isError !== undefined) {
@@ -67,7 +70,7 @@ export async function listEmailsTool(authManager, args) {
 }
 
 // Get detailed information about a specific email
-export async function getEmailTool(authManager, args) {
+export async function getEmailTool(registry, args) {
   console.error(`DEBUG getEmailTool: Called with args:`, JSON.stringify(args, null, 2));
   const {
     messageId,
@@ -82,16 +85,18 @@ export async function getEmailTool(authManager, args) {
   }
 
   try {
-    console.error(`DEBUG getEmailTool: Starting authentication for messageId: ${messageId}`);
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager, account } = await registry.resolve(args.account);
+    console.error(`DEBUG getEmailTool: Starting authentication for messageId: ${messageId} on account: ${account.accountId}`);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const options = {
       select: 'id,subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,sentDateTime,body,bodyPreview,importance,isRead,hasAttachments,attachments,conversationId'
     };
 
     console.error(`DEBUG getEmailTool: Making Graph API request for ${messageId}`);
-    const email = await graphApiClient.makeRequest(`/me/messages/${messageId}`, options);
+    const email = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}`, options);
     console.error(`DEBUG getEmailTool: Got email response with subject: ${email?.subject || 'NO SUBJECT'}`);
 
     // Check if the response is already an MCP error

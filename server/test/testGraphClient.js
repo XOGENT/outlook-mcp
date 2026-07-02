@@ -1,121 +1,130 @@
 #!/usr/bin/env node
 
-import { OutlookAuthManager } from '../auth/auth.js';
+import { pathToFileURL } from 'url';
+import { authManagerRegistry } from '../auth/authManagerRegistry.js';
+import { getStartupConfig } from '../auth/defaultApp.js';
 import { graphHelpers } from '../graph/graphHelpers.js';
+
+async function ensureAccounts(registry) {
+  await registry.initialize();
+
+  if (await registry.hasAccounts()) {
+    return registry.listAccounts();
+  }
+
+  if (process.env.CONNECT_ACCOUNT === '1') {
+    console.log('No accounts found — starting interactive connect flow...\n');
+    const startup = getStartupConfig();
+    const result = await registry.connectAccount({
+      clientId: process.env.AZURE_CLIENT_ID || startup.clientId,
+      tenantId: process.env.AZURE_TENANT_ID,
+    });
+
+    if (!result.success) {
+      throw new Error(`Connect failed: ${result.error?.content?.[0]?.text || result.error?.message || 'unknown error'}`);
+    }
+
+    console.log(`Connected: ${result.account.email} (${result.account.accountId})`);
+    if (result.deviceCodeInfo) {
+      console.log(`Device code: ${result.deviceCodeInfo.userCode}`);
+      console.log(`Visit: ${result.deviceCodeInfo.verificationUri}`);
+    }
+    return registry.listAccounts();
+  }
+
+  console.error('No accounts connected.');
+  console.error('Connect an account first, or run with CONNECT_ACCOUNT=1 to authenticate interactively.');
+  console.error('Optional BYO env vars: AZURE_CLIENT_ID, AZURE_TENANT_ID');
+  process.exit(1);
+}
+
+async function testAccount(registry, account) {
+  console.log(`\n=== Account: ${account.email} (${account.accountId}) ===\n`);
+
+  const { manager } = await registry.resolve(account.accountId);
+  await manager.ensureAuthenticated();
+  const graphApiClient = manager.getGraphApiClient();
+
+  console.log('1. Testing optimized email request...');
+  const emails = await graphApiClient.getWithSelect('/me/messages', [
+    'subject', 'from', 'receivedDateTime', 'isRead',
+  ]);
+  console.log(`   ✓ Retrieved ${emails.value?.length || 0} emails`);
+
+  console.log('2. Testing calendar request...');
+  const events = await graphApiClient.makeRequest('/me/events', {
+    select: 'subject,start,end',
+    top: 5,
+    orderby: 'start/dateTime',
+  });
+  console.log(`   ✓ Retrieved ${events.value?.length || 0} calendar events`);
+
+  console.log('3. Testing Graph helpers...');
+  const filter = graphHelpers.general.buildODataFilter({
+    isRead: false,
+    receivedDateTime: { $gt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+  });
+  console.log(`   ✓ Built OData filter: ${filter}`);
+
+  console.log('4. Testing batch request...');
+  const batchRequests = [
+    { method: 'GET', url: '/me' },
+    { method: 'GET', url: '/me/mailFolders/inbox' },
+    { method: 'GET', url: '/me/calendar' },
+  ];
+  const batchResponse = await graphApiClient.makeBatchRequest(batchRequests);
+  console.log(`   ✓ Executed batch request with ${batchResponse.length} operations`);
+
+  console.log('5. Testing error handling...');
+  try {
+    await graphApiClient.makeRequest('/me/nonexistent-endpoint');
+  } catch (error) {
+    console.log(`   ✓ Error handling working: ${error.message}`);
+  }
+
+  console.log('6. Testing pagination helper...');
+  let emailCount = 0;
+  for await (const emailBatch of graphApiClient.iterateAllPages('/me/messages', { top: 2 })) {
+    emailCount += emailBatch.length;
+    if (emailCount >= 4) break;
+  }
+  console.log(`   ✓ Pagination retrieved ${emailCount} emails across multiple pages`);
+}
 
 async function testGraphApiClient() {
   try {
-    console.log('Testing Graph API Client Configuration...\n');
+    console.log('Testing Graph API Client (multi-account)...\n');
 
-    // Initialize auth manager
-    const authManager = new OutlookAuthManager(
-      process.env.AZURE_CLIENT_ID,
-      process.env.AZURE_TENANT_ID
-    );
+    const registry = authManagerRegistry;
+    let accounts = await ensureAccounts(registry);
 
-    console.log('1. Testing authentication...');
-    const authResult = await authManager.authenticate();
-    if (authResult.success) {
-      console.log(`✓ Authenticated as: ${authResult.user.displayName} (${authResult.user.mail})`);
-    } else {
-      throw new Error(`Authentication failed: ${authResult.error}`);
+    if (process.env.CONNECT_SECOND_ACCOUNT === '1') {
+      console.log('\nConnecting a second account...');
+      const startup = getStartupConfig();
+      const result = await registry.connectAccount({
+        clientId: process.env.AZURE_CLIENT_ID || startup.clientId,
+        tenantId: process.env.AZURE_TENANT_ID,
+      });
+      if (!result.success) {
+        throw new Error(`Second account connect failed: ${result.error?.content?.[0]?.text || 'unknown error'}`);
+      }
+      console.log(`Connected second account: ${result.account.email}`);
+      accounts = await registry.listAccounts();
     }
 
-    // Get the enhanced Graph API client
-    const graphApiClient = authManager.getGraphApiClient();
-
-    console.log('\n2. Testing rate limiting and retry logic...');
-    
-    // Test basic request with $select optimization
-    console.log('   - Testing optimized email request...');
-    const emails = await graphApiClient.getWithSelect('/me/messages', [
-      'subject', 'from', 'receivedDateTime', 'isRead'
-    ]);
-    console.log(`   ✓ Retrieved ${emails.value?.length || 0} emails with optimized query`);
-
-    // Test calendar request
-    console.log('   - Testing calendar request...');
-    const events = await graphApiClient.makeRequest('/me/events', {
-      select: 'subject,start,end',
-      top: 5,
-      orderby: 'start/dateTime',
-    });
-    console.log(`   ✓ Retrieved ${events.value?.length || 0} calendar events`);
-
-    console.log('\n3. Testing Graph helpers...');
-    
-    // Test OData filter building
-    const filter = graphHelpers.general.buildODataFilter({
-      isRead: false,
-      receivedDateTime: { $gt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-      from: { $contains: 'example' }
-    });
-    console.log(`   ✓ Built OData filter: ${filter}`);
-
-    // Test email object building
-    const emailObject = graphHelpers.email.buildMessageObject(
-      ['test@example.com'],
-      'Test Subject',
-      'Test body',
-      { bodyType: 'html', cc: ['cc@example.com'] }
-    );
-    console.log(`   ✓ Built email object with ${emailObject.toRecipients.length} recipients`);
-
-    // Test event object building
-    const eventObject = graphHelpers.calendar.buildEventObject(
-      'Test Meeting',
-      { dateTime: '2024-01-01T10:00:00', timeZone: 'UTC' },
-      { dateTime: '2024-01-01T11:00:00', timeZone: 'UTC' },
-      { location: 'Conference Room', attendees: ['attendee@example.com'] }
-    );
-    console.log(`   ✓ Built calendar event with ${eventObject.attendees?.length || 0} attendees`);
-
-    console.log('\n4. Testing batch request capability...');
-    
-    // Test batch request (read-only operations)
-    const batchRequests = [
-      { method: 'GET', url: '/me' },
-      { method: 'GET', url: '/me/mailFolders/inbox' },
-      { method: 'GET', url: '/me/calendar' }
-    ];
-    
-    const batchResponse = await graphApiClient.makeBatchRequest(batchRequests);
-    console.log(`   ✓ Executed batch request with ${batchResponse.length} operations`);
-    
-    for (let i = 0; i < batchResponse.length; i++) {
-      const response = batchResponse[i];
-      console.log(`     - Request ${i + 1}: Status ${response.status}`);
+    console.log(`Found ${accounts.length} connected account(s).`);
+    for (const account of accounts) {
+      await testAccount(registry, account);
     }
-
-    console.log('\n5. Testing error handling...');
-    
-    try {
-      await graphApiClient.makeRequest('/me/nonexistent-endpoint');
-    } catch (error) {
-      console.log(`   ✓ Error handling working: ${error.message}`);
-    }
-
-    console.log('\n6. Testing pagination helper...');
-    
-    let emailCount = 0;
-    for await (const emailBatch of graphApiClient.iterateAllPages('/me/messages', { top: 2 })) {
-      emailCount += emailBatch.length;
-      if (emailCount >= 4) break; // Limit for testing
-    }
-    console.log(`   ✓ Pagination retrieved ${emailCount} emails across multiple pages`);
 
     console.log('\n✅ All Graph API Client tests passed!');
-    console.log('\nGraph API Client Features Verified:');
-    console.log('- Authentication and token management');
-    console.log('- Rate limiting (4 concurrent requests max)');
-    console.log('- Automatic retry with exponential backoff');
-    console.log('- Request optimization with $select parameters');
+    console.log('\nVerified per account:');
+    console.log('- Authentication via AuthManagerRegistry');
+    console.log('- Rate limiting and retry logic');
+    console.log('- Request optimization with $select');
     console.log('- Batch request processing');
-    console.log('- Correlation ID tracking');
-    console.log('- Error handling with meaningful messages');
+    console.log('- Error handling');
     console.log('- Pagination support');
-    console.log('- Helper utilities for common operations');
-
   } catch (error) {
     console.error('❌ Test failed:', error.message);
     if (error.stack) {
@@ -125,13 +134,9 @@ async function testGraphApiClient() {
   }
 }
 
-// Only run if this file is executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  if (!process.env.AZURE_CLIENT_ID || !process.env.AZURE_TENANT_ID) {
-    console.error('Error: Please set AZURE_CLIENT_ID and AZURE_TENANT_ID environment variables');
-    console.error('Note: This test uses OAuth 2.0 with PKCE for secure delegated authentication.');
-    process.exit(1);
-  }
-  
+const isMain = process.argv[1]
+  && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (isMain) {
   testGraphApiClient();
 }

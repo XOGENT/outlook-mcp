@@ -1,0 +1,13 @@
+services:
+  outlook-mcp:
+    build: .
+    stdin_open: true
+    volumes:
+      - outlook-mcp-data:/data
+    environment:
+      MCP_OUTLOOK_HEADLESS: "true"
+      MCP_OUTLOOK_DATA_DIR: /data
+      MCP_OUTLOOK_WORK_DIR: /data/downloads
+
+volumes:
+  outlook-mcp-data:

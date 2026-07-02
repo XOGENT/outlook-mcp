@@ -1,4 +1,6 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Helper function to format file size
 function formatFileSize(bytes) {
@@ -10,7 +12,7 @@ function formatFileSize(bytes) {
 }
 
 // Add attachment to message
-export async function addAttachmentTool(authManager, args) {
+export async function addAttachmentTool(registry, args) {
   const { messageId, name, contentType, contentBytes } = args;
 
   if (!messageId) {
@@ -30,8 +32,12 @@ export async function addAttachmentTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolvedWrite = await resolveWriteAccount(registry, args);
+    if (resolvedWrite?.isError) return resolvedWrite;
+    const { manager } = resolvedWrite;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const attachmentData = {
       '@odata.type': '#microsoft.graph.fileAttachment',
@@ -40,7 +46,7 @@ export async function addAttachmentTool(authManager, args) {
       contentBytes: contentBytes
     };
 
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/attachments`, attachmentData);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/attachments`, attachmentData);
 
     // Calculate approximate size from base64 content
     const estimatedSize = Math.floor(contentBytes.length * 0.75); // Base64 is ~33% larger than original

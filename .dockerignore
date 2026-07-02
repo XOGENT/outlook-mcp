@@ -1,0 +1,14 @@
+node_modules
+.tokens
+.downloads
+.git
+.github
+*.md
+!docs/docker.md
+server/tests
+server/test
+server/tools/test
+vitest.config.js
+.env*
+*.dxt
+.DS_Store

@@ -67,3 +67,10 @@ export { getRateLimitMetricsTool, resetRateLimitMetricsTool } from './common/rat
 
 // SharePoint tools
 export { getSharePointFileTool, listSharePointFilesTool, resolveSharePointLinkTool } from './sharepoint/getSharePointFile.js';
+
+// Account tools
+export { connectAccountTool } from './accounts/connectAccount.js';
+export { listAccountsTool } from './accounts/listAccounts.js';
+export { disconnectAccountTool } from './accounts/disconnectAccount.js';
+export { setDefaultAccountTool } from './accounts/setDefaultAccount.js';
+export { listAccessibleMailboxesTool } from './accounts/listAccessibleMailboxes.js';

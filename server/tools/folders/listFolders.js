@@ -1,13 +1,17 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
 import { createSafeResponse } from '../../utils/jsonUtils.js';
+import { resolveReadAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // List mail folders
-export async function listFoldersTool(authManager, args) {
+export async function listFoldersTool(registry, args) {
   const { includeHidden = false, includeChildFolders = true, top = 100 } = args;
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const options = {
       select: 'id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount,isHidden',
@@ -18,9 +22,9 @@ export async function listFoldersTool(authManager, args) {
       options.filter = 'isHidden eq false';
     }
 
-    let endpoint = '/me/mailFolders';
+    let endpoint = `${mailboxBase}/mailFolders`;
     if (includeChildFolders) {
-      endpoint = '/me/mailFolders?includeNestedFolders=true';
+      endpoint = `${mailboxBase}/mailFolders?includeNestedFolders=true`;
     }
 
     const result = await graphApiClient.makeRequest(endpoint, options);

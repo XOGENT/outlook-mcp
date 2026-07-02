@@ -1,8 +1,10 @@
 import { applyUserStyling } from '../common/sharedUtils.js';
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Create draft email with user styling
-export async function createDraftTool(authManager, args) {
+export async function createDraftTool(registry, args) {
   const { to, subject, body, bodyType = 'text', cc = [], bcc = [], importance = 'normal', preserveUserStyling = true } = args;
 
   if (!to || to.length === 0) {
@@ -14,8 +16,14 @@ export async function createDraftTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     // Apply user styling if enabled
     let finalBody = body || '';
@@ -51,7 +59,7 @@ export async function createDraftTool(authManager, args) {
       }));
     }
 
-    const result = await graphApiClient.postWithRetry('/me/messages', draft);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages`, draft);
 
     return {
       content: [
