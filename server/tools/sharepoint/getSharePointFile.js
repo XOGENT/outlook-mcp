@@ -9,6 +9,8 @@ import { convertErrorToToolError, createValidationError, createToolError } from 
 import { handleLargeContent, saveBase64File } from '../../utils/fileOutput.js';
 import { safeStringify, createSafeResponse } from '../../utils/jsonUtils.js';
 import { graphHelpers } from '../../graph/graphHelpers.js';
+import { resolveReadAccount, resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 import * as XLSX from 'xlsx';
 import officeParser from 'officeparser';
 
@@ -691,7 +693,7 @@ async function getFileFromDrive(graphClient, driveId, itemId, downloadContent = 
  * @param {object} args - Tool arguments
  * @returns {object} MCP tool response
  */
-export async function getSharePointFileTool(authManager, args) {
+export async function getSharePointFileTool(registry, args) {
   try {
     // Input validation
     if (!args.sharePointUrl && !args.fileId) {
@@ -699,8 +701,9 @@ export async function getSharePointFileTool(authManager, args) {
     }
 
     // Ensure authentication
-    const graphClient = await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    const graphClient = await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
 
     let fileResult;
 
@@ -911,13 +914,15 @@ export async function getSharePointFileTool(authManager, args) {
  * @param {object} args - Tool arguments
  * @returns {object} MCP tool response
  */
-export async function resolveSharePointLinkTool(authManager, args) {
+export async function resolveSharePointLinkTool(registry, args) {
   try {
     if (!args.sharePointUrl) {
       return createValidationError('sharePointUrl', 'SharePoint URL is required');
     }
 
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
 
     // Parse the URL first
     const urlInfo = parseSharePointUrl(args.sharePointUrl);
@@ -976,9 +981,12 @@ export async function resolveSharePointLinkTool(authManager, args) {
  * @param {object} args - Tool arguments
  * @returns {object} MCP tool response
  */
-export async function listSharePointFilesTool(authManager, args) {
+export async function listSharePointFilesTool(registry, args) {
   try {
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     let listPath;
     if (args.siteId && args.driveId) {
@@ -986,7 +994,7 @@ export async function listSharePointFilesTool(authManager, args) {
     } else if (args.driveId) {
       listPath = `/drives/${args.driveId}/root/children`;
     } else {
-      listPath = '/me/drive/root/children'; // Default to user's OneDrive
+      listPath = `${mailboxBase}/drive/root/children`; // Default to mailbox-scoped OneDrive
     }
 
     if (args.folderId) {

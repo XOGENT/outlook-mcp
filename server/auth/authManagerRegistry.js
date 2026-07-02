@@ -1,0 +1,238 @@
+import { OutlookAuthManager } from './auth.js';
+import { accountRegistry } from './accountRegistry.js';
+import { LegacyTokenManager } from './tokenManager.js';
+import { getStartupConfig, resolveClientId, resolveAuthAuthority, resolveAuthMode } from './defaultApp.js';
+import { extractAccountClaims } from './jwtUtils.js';
+import { createAuthError } from '../utils/mcpErrorResponse.js';
+import { clearStylingCache, clearSignatureCache } from '../tools/common/sharedUtils.js';
+
+const pendingAuthSessions = new Map();
+const managerCache = new Map();
+
+export class AuthManagerRegistry {
+  constructor() {
+    this.startupConfig = getStartupConfig();
+    this.migrated = false;
+  }
+
+  async initialize() {
+    if (!this.migrated) {
+      await this.migrateLegacyTokens();
+      this.migrated = true;
+    }
+  }
+
+  async migrateLegacyTokens() {
+    const hasAccounts = await accountRegistry.hasAccounts();
+    if (hasAccounts) return;
+
+    const clientId = this.startupConfig.clientId;
+    const legacyManager = new LegacyTokenManager(clientId);
+    if (!(await legacyManager.hasLegacyTokens())) return;
+
+    try {
+      const tenantId = process.env.AZURE_TENANT_ID || 'organizations';
+      const authManager = new OutlookAuthManager({
+        accountId: null,
+        clientId,
+        tenantId,
+        tokenManager: legacyManager,
+      });
+      await authManager.initializeGraphClient();
+      const result = await authManager.validateAuthentication();
+      if (!result.success) return;
+
+      const accessToken = await legacyManager.getAccessToken();
+      const claims = extractAccountClaims(accessToken);
+      const accountId = claims?.accountId || `legacy:${result.user.id}`;
+
+      const newManager = new OutlookAuthManager({
+        accountId,
+        clientId,
+        tenantId: claims?.tenantId || tenantId,
+        authAuthority: tenantId,
+      });
+      const refreshToken = await legacyManager.getRefreshToken().catch(() => null);
+      const metadata = await legacyManager.getTokenMetadata();
+      const expiresIn = metadata
+        ? Math.max(60, Math.floor((metadata.accessTokenExpiry - Date.now()) / 1000))
+        : 3600;
+      await newManager.tokenManager.storeTokens(accessToken, refreshToken, expiresIn);
+
+      await accountRegistry.addAccount({
+        accountId,
+        tenantId: claims?.tenantId || tenantId,
+        clientId,
+        authMode: this.startupConfig.authMode,
+        userId: result.user.id,
+        email: result.user.mail,
+        displayName: result.user.displayName,
+      });
+
+      await legacyManager.clearTokens();
+      console.error(`Migrated legacy tokens to account ${accountId}`);
+    } catch (error) {
+      console.error('Legacy token migration failed:', error.message);
+    }
+  }
+
+  async listAccounts() {
+    await this.initialize();
+    return accountRegistry.listAccounts();
+  }
+
+  async hasAccounts() {
+    await this.initialize();
+    return accountRegistry.hasAccounts();
+  }
+
+  async resolve(accountId) {
+    await this.initialize();
+    const account = accountId
+      ? await accountRegistry.getAccount(accountId)
+      : await accountRegistry.getDefaultAccount();
+    if (!account) {
+      throw createAuthError('No account connected. Call outlook_connect_account to sign in.', true);
+    }
+    const manager = await this.getOrCreateManager(account);
+    return { manager, account };
+  }
+
+  async resolveAll() {
+    await this.initialize();
+    const accounts = await accountRegistry.listAccounts();
+    if (accounts.length === 0) {
+      throw createAuthError('No account connected. Call outlook_connect_account to sign in.', true);
+    }
+    return accounts;
+  }
+
+  async getOrCreateManager(account) {
+    if (managerCache.has(account.accountId)) {
+      return managerCache.get(account.accountId);
+    }
+    const manager = new OutlookAuthManager({
+      accountId: account.accountId,
+      clientId: account.clientId,
+      tenantId: account.tenantId,
+      authAuthority: account.tenantId,
+    });
+    managerCache.set(account.accountId, manager);
+    return manager;
+  }
+
+  async connectAccount(opts = {}) {
+    await this.initialize();
+    const clientId = resolveClientId(opts.clientId);
+    const authority = resolveAuthAuthority(opts.tenantId);
+    const authMode = resolveAuthMode(clientId, authority);
+
+    const pendingAccountId = `pending-${Date.now()}`;
+    const manager = new OutlookAuthManager({
+      accountId: pendingAccountId,
+      clientId,
+      tenantId: authority,
+      authAuthority: authority,
+      isConnectFlow: true,
+    });
+
+    const result = await manager.authenticateConnect();
+    if (!result.success) {
+      return result;
+    }
+
+    const accessToken = await manager.tokenManager.getAccessToken();
+    const claims = extractAccountClaims(accessToken);
+    const accountId = claims?.accountId || `${authority}:${result.user.id}`;
+
+    const finalManager = new OutlookAuthManager({
+      accountId,
+      clientId,
+      tenantId: claims?.tenantId || authority,
+      authAuthority: claims?.tenantId || authority,
+    });
+
+    const refreshToken = await manager.tokenManager.getRefreshToken().catch(() => null);
+    const metadata = await manager.tokenManager.getTokenMetadata();
+    const expiresIn = metadata
+      ? Math.max(60, Math.floor((metadata.accessTokenExpiry - Date.now()) / 1000))
+      : 3600;
+
+    await finalManager.tokenManager.storeTokens(accessToken, refreshToken, expiresIn);
+    await manager.tokenManager.clearTokens();
+
+    const account = await accountRegistry.addAccount({
+      accountId,
+      tenantId: claims?.tenantId || authority,
+      clientId,
+      authMode,
+      userId: result.user.id,
+      email: result.user.mail,
+      displayName: result.user.displayName,
+    });
+
+    managerCache.set(accountId, finalManager);
+    finalManager.authenticationRecord = account;
+    finalManager.isAuthenticated = true;
+    await finalManager.initializeGraphClient();
+
+    return {
+      success: true,
+      account: {
+        accountId,
+        email: result.user.mail,
+        displayName: result.user.displayName,
+        tenantId: claims?.tenantId || authority,
+        authMode,
+        isDefault: (await accountRegistry.listAccounts()).find(a => a.accountId === accountId)?.isDefault,
+      },
+      deviceCodeInfo: result.deviceCodeInfo || null,
+    };
+  }
+
+  async removeAccount(accountId) {
+    await this.initialize();
+    const manager = managerCache.get(accountId);
+    if (manager) {
+      await manager.logout();
+      managerCache.delete(accountId);
+    } else {
+      const account = await accountRegistry.getAccount(accountId);
+      if (account) {
+        const m = new OutlookAuthManager({
+          accountId,
+          clientId: account.clientId,
+          tenantId: account.tenantId,
+          authAuthority: account.tenantId,
+        });
+        await m.logout();
+      }
+    }
+    clearStylingCache(accountId);
+    clearSignatureCache(accountId);
+    await accountRegistry.removeAccount(accountId);
+    return { success: true, accountId };
+  }
+
+  async setDefaultAccount(accountId) {
+    await this.initialize();
+    const account = await accountRegistry.setDefaultAccount(accountId);
+    return { success: true, account };
+  }
+
+  registerPendingAuth(state, session) {
+    pendingAuthSessions.set(state, session);
+  }
+
+  consumePendingAuth(state) {
+    const session = pendingAuthSessions.get(state);
+    pendingAuthSessions.delete(state);
+    return session;
+  }
+
+  evictManager(accountId) {
+    managerCache.delete(accountId);
+  }
+}
+
+export const authManagerRegistry = new AuthManagerRegistry();

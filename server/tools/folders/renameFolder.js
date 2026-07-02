@@ -1,7 +1,9 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Rename mail folder
-export async function renameFolderTool(authManager, args) {
+export async function renameFolderTool(registry, args) {
   const { folderId, newDisplayName } = args;
 
   if (!folderId) {
@@ -13,10 +15,14 @@ export async function renameFolderTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolvedWrite = await resolveWriteAccount(registry, args);
+    if (resolvedWrite?.isError) return resolvedWrite;
+    const { manager } = resolvedWrite;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
-    await graphApiClient.makeRequest(`/me/mailFolders/${folderId}`, {
+    await graphApiClient.makeRequest(`${mailboxBase}/mailFolders/${folderId}`, {
       body: { displayName: newDisplayName }
     }, 'PATCH');
 

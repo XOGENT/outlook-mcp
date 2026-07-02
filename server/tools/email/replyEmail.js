@@ -1,8 +1,10 @@
 import { applyUserStyling } from '../common/sharedUtils.js';
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Reply to an email
-export async function replyToEmailTool(authManager, args) {
+export async function replyToEmailTool(registry, args) {
   const { messageId, body, bodyType = 'text', comment = '', preserveUserStyling = true } = args;
 
   if (!messageId) {
@@ -14,8 +16,14 @@ export async function replyToEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const replyPayload = {};
 
@@ -40,7 +48,7 @@ export async function replyToEmailTool(authManager, args) {
       }
     }
 
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/reply`, replyPayload);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/reply`, replyPayload);
 
     return {
       content: [
@@ -56,7 +64,7 @@ export async function replyToEmailTool(authManager, args) {
 }
 
 // Reply all to an email
-export async function replyAllTool(authManager, args) {
+export async function replyAllTool(registry, args) {
   const { messageId, body, bodyType = 'text', comment = '', preserveUserStyling = true } = args;
 
   if (!messageId) {
@@ -68,8 +76,14 @@ export async function replyAllTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const replyPayload = {};
 
@@ -94,7 +108,7 @@ export async function replyAllTool(authManager, args) {
       }
     }
 
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/replyAll`, replyPayload);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/replyAll`, replyPayload);
 
     return {
       content: [

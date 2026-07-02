@@ -1,13 +1,21 @@
 import { applyUserStyling } from '../common/sharedUtils.js';
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Create calendar event with Teams meeting support
-export async function createEventTool(authManager, args) {
+export async function createEventTool(registry, args) {
   const { subject, start, end, body = '', bodyType = 'text', location = '', attendees = [], isOnlineMeeting = false, onlineMeetingProvider = 'teamsForBusiness', recurrence, preserveUserStyling = true } = args;
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolved = await resolveWriteAccount(registry, args);
+    if (resolved?.content && resolved?.isError !== undefined) {
+      return resolved;
+    }
+    const { manager } = resolved;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     // Apply user styling if enabled and body is provided
     let finalBody = body;
@@ -103,7 +111,7 @@ export async function createEventTool(authManager, args) {
       event.recurrence = recurrence;
     }
 
-    const result = await graphApiClient.postWithRetry('/me/events', event);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/events`, event);
 
     const isRecurring = recurrence ? true : false;
     const meetingType = isOnlineMeeting ? 'Teams meeting' : 'Event';

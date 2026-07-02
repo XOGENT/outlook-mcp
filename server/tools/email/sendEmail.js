@@ -1,13 +1,21 @@
 import { applyUserStyling, clearStylingCache } from '../common/sharedUtils.js';
 import { convertErrorToToolError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Send email with user styling
-export async function sendEmailTool(authManager, args) {
+export async function sendEmailTool(registry, args) {
   const { to, subject, body, bodyType = 'text', cc = [], bcc = [], preserveUserStyling = true } = args;
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager, account } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     let finalBody = body;
     let finalBodyType = bodyType;
@@ -42,7 +50,7 @@ export async function sendEmailTool(authManager, args) {
       }));
     }
 
-    await graphApiClient.postWithRetry('/me/sendMail', {
+    await graphApiClient.postWithRetry(`${mailboxBase}/sendMail`, {
       message,
       saveToSentItems: true,
     });
@@ -60,7 +68,13 @@ export async function sendEmailTool(authManager, args) {
       content: [
         {
           type: 'text',
-          text: `Email sent successfully to ${to.join(', ')}`,
+          text: JSON.stringify({
+            message: `Email sent successfully to ${to.join(', ')}`,
+            fromAccount: {
+              accountId: account.accountId,
+              email: account.email
+            }
+          }, null, 2),
         },
       ],
     };
