@@ -1,9 +1,11 @@
 import { applyUserStyling } from '../common/sharedUtils.js';
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
 import { createSafeResponse, safeStringify } from '../../utils/jsonUtils.js';
+import { resolveReadAccount, resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Get detailed event information
-export async function getEventTool(authManager, args) {
+export async function getEventTool(registry, args) {
   const { eventId, calendarId } = args;
 
   if (!eventId) {
@@ -11,12 +13,14 @@ export async function getEventTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
     
     const endpoint = calendarId ? 
-      `/me/calendars/${calendarId}/events/${eventId}` : 
-      `/me/events/${eventId}`;
+      `${mailboxBase}/calendars/${calendarId}/events/${eventId}` : 
+      `${mailboxBase}/events/${eventId}`;
     
     const options = {
       select: 'id,subject,start,end,location,attendees,body,bodyPreview,organizer,isAllDay,showAs,sensitivity,importance,recurrence,reminderMinutesBeforeStart,responseRequested,allowNewTimeProposals,onlineMeeting,isOnlineMeeting,onlineMeetingProvider,categories,createdDateTime,lastModifiedDateTime'
@@ -64,7 +68,7 @@ export async function getEventTool(authManager, args) {
 }
 
 // Update event
-export async function updateEventTool(authManager, args) {
+export async function updateEventTool(registry, args) {
   const { eventId, subject, start, end, body, bodyType = 'text', location, attendees, isOnlineMeeting, onlineMeetingProvider, recurrence, preserveUserStyling = true } = args;
 
   if (!eventId) {
@@ -72,8 +76,14 @@ export async function updateEventTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolved = await resolveWriteAccount(registry, args);
+    if (resolved?.content && resolved?.isError !== undefined) {
+      return resolved;
+    }
+    const { manager } = resolved;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const updateData = {};
 
@@ -129,7 +139,7 @@ export async function updateEventTool(authManager, args) {
       updateData.recurrence = recurrence;
     }
 
-    const result = await graphApiClient.makeRequest(`/me/events/${eventId}`, {
+    const result = await graphApiClient.makeRequest(`${mailboxBase}/events/${eventId}`, {
       body: updateData
     }, 'PATCH');
 
@@ -147,7 +157,7 @@ export async function updateEventTool(authManager, args) {
 }
 
 // Delete event
-export async function deleteEventTool(authManager, args) {
+export async function deleteEventTool(registry, args) {
   const { eventId, calendarId } = args;
 
   if (!eventId) {
@@ -155,12 +165,18 @@ export async function deleteEventTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolved = await resolveWriteAccount(registry, args);
+    if (resolved?.content && resolved?.isError !== undefined) {
+      return resolved;
+    }
+    const { manager } = resolved;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const endpoint = calendarId ? 
-      `/me/calendars/${calendarId}/events/${eventId}` : 
-      `/me/events/${eventId}`;
+      `${mailboxBase}/calendars/${calendarId}/events/${eventId}` : 
+      `${mailboxBase}/events/${eventId}`;
 
     await graphApiClient.makeRequest(endpoint, {}, 'DELETE');
 
@@ -178,7 +194,7 @@ export async function deleteEventTool(authManager, args) {
 }
 
 // Respond to event invitation
-export async function respondToInviteTool(authManager, args) {
+export async function respondToInviteTool(registry, args) {
   const { eventId, response = 'accept', comment = '' } = args;
 
   if (!eventId) {
@@ -190,15 +206,21 @@ export async function respondToInviteTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolved = await resolveWriteAccount(registry, args);
+    if (resolved?.content && resolved?.isError !== undefined) {
+      return resolved;
+    }
+    const { manager } = resolved;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const payload = {
       comment,
       sendResponse: true
     };
 
-    const result = await graphApiClient.postWithRetry(`/me/events/${eventId}/${response}`, payload);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/events/${eventId}/${response}`, payload);
 
     return {
       content: [
@@ -214,7 +236,7 @@ export async function respondToInviteTool(authManager, args) {
 }
 
 // Validate event date times
-export async function validateEventDateTimesTool(authManager, args) {
+export async function validateEventDateTimesTool(registry, args) {
   const { startDateTime, endDateTime, timeZone = 'UTC' } = args;
 
   if (!startDateTime) {

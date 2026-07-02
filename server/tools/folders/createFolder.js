@@ -1,7 +1,9 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Create mail folder
-export async function createFolderTool(authManager, args) {
+export async function createFolderTool(registry, args) {
   const { displayName, parentFolderId } = args;
 
   if (!displayName) {
@@ -9,16 +11,20 @@ export async function createFolderTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const resolvedWrite = await resolveWriteAccount(registry, args);
+    if (resolvedWrite?.isError) return resolvedWrite;
+    const { manager } = resolvedWrite;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const folderData = {
       displayName: displayName
     };
 
-    let endpoint = '/me/mailFolders';
+    let endpoint = `${mailboxBase}/mailFolders`;
     if (parentFolderId) {
-      endpoint = `/me/mailFolders/${parentFolderId}/childFolders`;
+      endpoint = `${mailboxBase}/mailFolders/${parentFolderId}/childFolders`;
     }
 
     const result = await graphApiClient.postWithRetry(endpoint, folderData);

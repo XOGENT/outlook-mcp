@@ -8,7 +8,7 @@
 export const PROMPTS = {
     'check_recent_unread': {
         name: 'check_recent_unread',
-        description: 'Check unread emails from the last 36 hours, summarize them, and highlight action items',
+        description: 'Check unread emails from the last 36 hours across all connected accounts, summarize them, and highlight action items',
         arguments: []
     },
     'draft_reply': {
@@ -29,7 +29,7 @@ export const PROMPTS = {
     },
     'summarize_schedule': {
         name: 'summarize_schedule',
-        description: 'Summarize today\'s calendar events and schedule',
+        description: 'Summarize today\'s calendar events across all connected accounts',
         arguments: []
     }
 };
@@ -49,7 +49,7 @@ export async function getPrompt(name, args = {}) {
                         role: 'user',
                         content: {
                             type: 'text',
-                            text: 'Please check for unread emails received in the last 36 hours. Provide a high-level summary of these emails and highlight any that require immediate action.'
+                            text: 'Use outlook_connect_account first if no accounts are connected. Search unread emails from the last 36 hours across ALL connected accounts using outlook_search_emails. Provide a high-level summary grouped by account and highlight any that require immediate action.'
                         }
                     }
                 ]
@@ -66,7 +66,7 @@ export async function getPrompt(name, args = {}) {
                         role: 'user',
                         content: {
                             type: 'text',
-                            text: `Please draft a reply to email with ID "${email_id}". The tone should be ${tone}. First, fetch the email content to understand the context, then draft the response.`
+                            text: `Please draft a reply to email with ID "${email_id}". The tone should be ${tone}. If multiple accounts are connected, specify which account owns the email. First fetch the email content, then draft the response.`
                         }
                     }
                 ]
@@ -79,7 +79,7 @@ export async function getPrompt(name, args = {}) {
                         role: 'user',
                         content: {
                             type: 'text',
-                            text: 'Please list my calendar events for today and provide a summary of my schedule. Identify any conflicts or free blocks.'
+                            text: 'Use outlook_connect_account first if no accounts are connected. List calendar events for today across ALL connected accounts using outlook_list_events. Summarize the schedule grouped by account and identify conflicts or free blocks.'
                         }
                     }
                 ]

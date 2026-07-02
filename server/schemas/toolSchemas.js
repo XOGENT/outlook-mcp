@@ -30,27 +30,33 @@ import {
   sharePointSchemaMap 
 } from './sharePointSchemas.js';
 
-/**
- * Complete array of all tool schemas
- */
-export const allToolSchemas = [
+import {
+  accountSchemas,
+  accountSchemaMap,
+} from './accountSchemas.js';
+
+import { augmentSchemas } from './schemaHelpers.js';
+
+const baseToolSchemas = [
   ...emailSchemas,
   ...calendarSchemas,
   ...folderSchemas,
   ...attachmentSchemas,
   ...sharePointSchemas,
+  ...accountSchemas,
 ];
+
+/**
+ * Complete array of all tool schemas
+ */
+export const allToolSchemas = augmentSchemas(baseToolSchemas);
 
 /**
  * Complete mapping of tool names to schemas
  */
-export const allToolSchemaMap = {
-  ...emailSchemaMap,
-  ...calendarSchemaMap,
-  ...folderSchemaMap,
-  ...attachmentSchemaMap,
-  ...sharePointSchemaMap,
-};
+export const allToolSchemaMap = Object.fromEntries(
+  allToolSchemas.map(schema => [schema.name, schema])
+);
 
 /**
  * Schemas organized by category
@@ -61,6 +67,7 @@ export const schemasByCategory = {
   folder: folderSchemas,
   attachment: attachmentSchemas,
   sharepoint: sharePointSchemas,
+  account: accountSchemas,
 };
 
 /**
@@ -72,6 +79,7 @@ export const schemaMaps = {
   folder: folderSchemaMap,
   attachment: attachmentSchemaMap,
   sharepoint: sharePointSchemaMap,
+  account: accountSchemaMap,
 };
 
 /**
