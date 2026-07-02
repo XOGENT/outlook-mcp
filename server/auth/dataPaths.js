@@ -9,6 +9,9 @@ export function getDataDir() {
   if (process.env.MCP_OUTLOOK_DATA_DIR) {
     return path.resolve(process.env.MCP_OUTLOOK_DATA_DIR);
   }
+  if (isHeadlessMode()) {
+    return '/data';
+  }
   return path.join(PROJECT_ROOT, '.tokens');
 }
 
@@ -25,6 +28,9 @@ export function getRegistryPath() {
 }
 
 export function getLegacyTokensDir() {
+  if (isHeadlessMode() || process.env.MCP_OUTLOOK_DATA_DIR) {
+    return path.join(getDataDir(), '.legacy-tokens');
+  }
   return path.join(PROJECT_ROOT, '.tokens');
 }
 
