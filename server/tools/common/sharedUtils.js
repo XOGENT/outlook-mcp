@@ -9,11 +9,11 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
 const SIGNATURE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour for signatures (they change less frequently)
 
 // Function to clear styling cache for a specific user or all users
-export function clearStylingCache(userId = null) {
-  if (userId) {
-    const cacheKey = `styling_${userId}`;
+export function clearStylingCache(userId = null, accountId = null) {
+  if (userId || accountId) {
+    const cacheKey = `styling_${accountId || 'default'}_${userId || 'default'}`;
     stylingCache.delete(cacheKey);
-    console.log(`Cleared styling cache for user ${userId}`);
+    console.log(`Cleared styling cache for ${cacheKey}`);
   } else {
     stylingCache.clear();
     console.log('Cleared all styling cache');
@@ -21,11 +21,11 @@ export function clearStylingCache(userId = null) {
 }
 
 // Function to clear signature cache for a specific user or all users
-export function clearSignatureCache(userId = null) {
-  if (userId) {
-    const cacheKey = `signature_${userId}`;
+export function clearSignatureCache(userId = null, accountId = null) {
+  if (userId || accountId) {
+    const cacheKey = `signature_${accountId || 'default'}_${userId || 'default'}`;
     signatureCache.delete(cacheKey);
-    console.log(`Cleared signature cache for user ${userId}`);
+    console.log(`Cleared signature cache for ${cacheKey}`);
   } else {
     signatureCache.clear();
     console.log('Cleared all signature cache');
@@ -49,28 +49,25 @@ export function getStylingCacheStats() {
 }
 
 // Helper function to get cached styling
-export function getCachedStyling(userId) {
-  return stylingCache.get(`styling_${userId}`);
+export function getCachedStyling(userId, accountId = 'default') {
+  return stylingCache.get(`styling_${accountId}_${userId}`);
 }
 
-// Helper function to set cached styling
-export function setCachedStyling(userId, styling) {
-  stylingCache.set(`styling_${userId}`, {
+export function setCachedStyling(userId, styling, accountId = 'default') {
+  stylingCache.set(`styling_${accountId}_${userId}`, {
     ...styling,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 }
 
-// Helper function to get cached signature
-export function getCachedSignature(userId) {
-  return signatureCache.get(`signature_${userId}`);
+export function getCachedSignature(userId, accountId = 'default') {
+  return signatureCache.get(`signature_${accountId}_${userId}`);
 }
 
-// Helper function to set cached signature
-export function setCachedSignature(userId, signature) {
-  signatureCache.set(`signature_${userId}`, {
+export function setCachedSignature(userId, signature, accountId = 'default') {
+  signatureCache.set(`signature_${accountId}_${userId}`, {
     signature,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 }
 

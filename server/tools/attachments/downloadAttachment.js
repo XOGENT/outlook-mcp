@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 import officeParser from 'officeparser';
 import { handleLargeContent, saveBase64File } from '../../utils/fileOutput.js';
 import { safeStringify, createSafeResponse } from '../../utils/jsonUtils.js';
+import { resolveReadAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Helper function to format file size
 function formatFileSize(bytes) {
@@ -368,7 +370,7 @@ async function decodeAttachmentContent(contentBytes, contentType, filename, maxT
 }
 
 // Download attachment
-export async function downloadAttachmentTool(authManager, args) {
+export async function downloadAttachmentTool(registry, args) {
   const { messageId, attachmentId, includeContent = false, decodeContent = true } = args;
 
   if (!messageId) {
@@ -380,13 +382,15 @@ export async function downloadAttachmentTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     console.error(`Debug: Downloading attachment ${attachmentId} from message ${messageId}`);
 
     // First, get attachment metadata and type
-    const attachment = await graphApiClient.makeRequest(`/me/messages/${messageId}/attachments/${attachmentId}`, {
+    const attachment = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}/attachments/${attachmentId}`, {
       select: 'id,name,contentType,size,isInline,lastModifiedDateTime,@odata.type'
     });
 
@@ -410,7 +414,7 @@ export async function downloadAttachmentTool(authManager, args) {
         // Try different approaches based on attachment type
         if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment') {
           // Standard file attachment - request with contentBytes
-          const fullAttachment = await graphApiClient.makeRequest(`/me/messages/${messageId}/attachments/${attachmentId}`, {
+          const fullAttachment = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}/attachments/${attachmentId}`, {
             select: 'id,name,contentType,size,isInline,lastModifiedDateTime,contentBytes,@odata.type'
           });
           
@@ -459,7 +463,7 @@ export async function downloadAttachmentTool(authManager, args) {
           
         } else if (attachment['@odata.type'] === '#microsoft.graph.itemAttachment') {
           // Item attachment (embedded message/calendar item)
-          const fullAttachment = await graphApiClient.makeRequest(`/me/messages/${messageId}/attachments/${attachmentId}`, {
+          const fullAttachment = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}/attachments/${attachmentId}`, {
             expand: 'item'
           });
           
@@ -475,7 +479,7 @@ export async function downloadAttachmentTool(authManager, args) {
           
         } else if (attachment['@odata.type'] === '#microsoft.graph.referenceAttachment') {
           // Reference attachment (link to SharePoint/OneDrive)
-          const fullAttachment = await graphApiClient.makeRequest(`/me/messages/${messageId}/attachments/${attachmentId}`);
+          const fullAttachment = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}/attachments/${attachmentId}`);
           
           attachmentInfo.sourceUrl = fullAttachment.sourceUrl;
           attachmentInfo.providerType = fullAttachment.providerType;
@@ -490,7 +494,7 @@ export async function downloadAttachmentTool(authManager, args) {
         } else {
           // Unknown attachment type - try the standard approach
           console.error('Debug: Unknown attachment type, trying standard contentBytes approach');
-          const fullAttachment = await graphApiClient.makeRequest(`/me/messages/${messageId}/attachments/${attachmentId}`);
+          const fullAttachment = await graphApiClient.makeRequest(`${mailboxBase}/messages/${messageId}/attachments/${attachmentId}`);
           
           if (fullAttachment.contentBytes) {
             if (decodeContent) {

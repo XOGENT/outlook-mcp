@@ -11,7 +11,9 @@ A Model Context Protocol (MCP) server that enables AI assistants to interact wit
 - **SharePoint Integration**: Access SharePoint files via sharing links or direct file IDs. Download files shared to you via emails. 
 - **Calendar Management**: View and manage calendar events and appointments
 - **Office Document Processing**: Parse PDF, Word, PowerPoint, and Excel files with extracted text content
-- **Large File Support**: Automatic handling of files that exceed MCP response size limits
+- **Multi-Account Support**: Connect multiple Microsoft accounts across tenants; search and calendar views fan out across all accounts
+- **Zero-Config OAuth**: Connect accounts via `outlook_connect_account` without manual Azure app setup (BYO app optional)
+- **Docker / Headless**: Run in a container with device-code OAuth — see [docs/docker.md](docs/docker.md)
 
 ## Quick Start
 
@@ -22,7 +24,7 @@ A Model Context Protocol (MCP) server that enables AI assistants to interact wit
 | [DXT Extension](#installing-as-dxt-extension) | Claude Desktop users |
 | [CLI Configuration](#using-with-cli-tools) | Claude Code, mcp CLI, other MCP clients |
 
-> **Prerequisites**: Before installing, you'll need to [set up an Azure application](#azure-setup-guide) to get your Client ID and Tenant ID.
+> **Getting started**: Install the server, then call `outlook_connect_account` to sign in. Azure app registration is optional — see [Azure Setup (Advanced)](#azure-setup-guide-advanced).
 
 ---
 
@@ -36,7 +38,9 @@ For Claude Desktop users, DXT extensions provide the simplest installation exper
 1. Download `outlook-mcp.dxt` from the [Releases page](https://github.com/XenoXilus/outlook-mcp/releases)
 2. In Claude Desktop, go to **Settings** → **Extensions**
 3. Click **Install from file** and select the `.dxt` file
-4. Enter your Azure Client ID, Tenant ID, and optional download directory when prompted
+4. Click **Install from file** — Azure Client ID and Tenant ID are optional (Advanced)
+
+**Connect your account:** After installing, ask your assistant to run `outlook_connect_account` to sign in via Microsoft OAuth.
 
 **Option 2: Build from Source**
 1. Clone and install dependencies:
@@ -99,9 +103,32 @@ export MCP_OUTLOOK_WORK_DIR="/optional/download/directory"
 
 ---
 
-## Azure Setup Guide
+## Multi-Account Setup
 
-To use this MCP server, you need to register an application in Microsoft Azure.
+1. Call **`outlook_connect_account`** to sign in (browser on desktop, device code in Docker/headless)
+2. Repeat for each additional Microsoft account / tenant
+3. Use **`outlook_list_accounts`** to see connected accounts
+4. **Search & calendar list tools** query all accounts by default
+5. **Send/write tools** require an `account` parameter when multiple accounts are connected
+6. Use **`outlook_disconnect_account`** to remove an account
+
+### Shared mailboxes
+
+Pass the `mailbox` parameter (e.g. `billing@contoso.com`) to access shared/delegated mailboxes via `/users/{mailbox}` paths.
+
+---
+
+## Docker (Headless)
+
+See [docs/docker.md](docs/docker.md) for container deployment with device-code OAuth and persistent token storage.
+
+---
+
+## Azure Setup Guide (Advanced)
+
+Azure app registration is **optional**. Use this section if your organization requires a BYO app or blocks third-party consent.
+
+To use the default hosted app, skip this section and call `outlook_connect_account` after install.
 
 ### For Business/Work Accounts (Recommended)
 

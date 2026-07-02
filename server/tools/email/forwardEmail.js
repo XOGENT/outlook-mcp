@@ -1,8 +1,10 @@
 import { applyUserStyling } from '../common/sharedUtils.js';
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
+import { resolveWriteAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Forward an email
-export async function forwardEmailTool(authManager, args) {
+export async function forwardEmailTool(registry, args) {
   const { messageId, to, body = '', bodyType = 'text', comment = '', preserveUserStyling = true } = args;
 
   if (!messageId) {
@@ -14,8 +16,14 @@ export async function forwardEmailTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const writeResolution = await resolveWriteAccount(registry, args);
+    if (writeResolution?.isError) {
+      return writeResolution;
+    }
+    const { manager } = writeResolution;
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     const forwardPayload = {
       toRecipients: to.map(email => ({
@@ -37,7 +45,7 @@ export async function forwardEmailTool(authManager, args) {
       }
     }
 
-    const result = await graphApiClient.postWithRetry(`/me/messages/${messageId}/forward`, forwardPayload);
+    const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/forward`, forwardPayload);
 
     return {
       content: [

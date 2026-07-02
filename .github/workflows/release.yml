@@ -31,6 +31,15 @@ jobs:
       - name: Build DXT package
         run: dxt pack . outlook-mcp.dxt
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t outlook-mcp:${{ steps.version.outputs.VERSION }} .
+
+      - name: Save Docker image tarball
+        run: docker save outlook-mcp:${{ steps.version.outputs.VERSION }} | gzip > outlook-mcp-docker.tar.gz
+
       - name: Generate SHA256 checksum
         id: checksum
         run: |
@@ -53,7 +62,14 @@ jobs:
             ### Installation
             1. Download `outlook-mcp.dxt` below
             2. In Claude Desktop: **Settings** → **Extensions** → **Install from file**
-            3. Enter your Azure Client ID and Tenant ID when prompted
+            3. Call `outlook_connect_account` to sign in (or enter BYO Azure credentials in Advanced settings)
+            
+            ### Docker (Headless)
+            ```bash
+            docker load < outlook-mcp-docker.tar.gz
+            docker run -i --rm -v outlook-mcp-data:/data -e MCP_OUTLOOK_HEADLESS=true outlook-mcp:${{ steps.version.outputs.VERSION }}
+            ```
+            See [docs/docker.md](https://github.com/XenoXilus/outlook-mcp/blob/main/docs/docker.md).
             
             ### SHA256 Checksum
             ```
@@ -68,5 +84,6 @@ jobs:
             See [README](https://github.com/XenoXilus/outlook-mcp#readme) for Azure setup instructions.
           files: |
             outlook-mcp.dxt
+            outlook-mcp-docker.tar.gz
           draft: false
           prerelease: false

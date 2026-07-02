@@ -1,8 +1,10 @@
 import { convertErrorToToolError, createValidationError } from '../../utils/mcpErrorResponse.js';
 import { createSafeResponse } from '../../utils/jsonUtils.js';
+import { resolveReadAccount } from '../common/crossAccountFanOut.js';
+import { buildMailboxBase } from '../../graph/mailboxPath.js';
 
 // Get folder statistics
-export async function getFolderStatsTool(authManager, args) {
+export async function getFolderStatsTool(registry, args) {
   const { folderId, includeSubfolders = true } = args;
 
   if (!folderId) {
@@ -10,11 +12,13 @@ export async function getFolderStatsTool(authManager, args) {
   }
 
   try {
-    await authManager.ensureAuthenticated();
-    const graphApiClient = authManager.getGraphApiClient();
+    const { manager } = await resolveReadAccount(registry, args);
+    await manager.ensureAuthenticated();
+    const graphApiClient = manager.getGraphApiClient();
+    const mailboxBase = buildMailboxBase(args.mailbox);
 
     // Get folder details
-    const folder = await graphApiClient.makeRequest(`/me/mailFolders/${folderId}`, {
+    const folder = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders/${folderId}`, {
       select: 'id,displayName,parentFolderId,childFolderCount,unreadItemCount,totalItemCount,isHidden'
     });
 
@@ -32,7 +36,7 @@ export async function getFolderStatsTool(authManager, args) {
     // Get subfolder stats if requested
     if (includeSubfolders && stats.childFolders > 0) {
       try {
-        const childFolders = await graphApiClient.makeRequest(`/me/mailFolders/${folderId}/childFolders`, {
+        const childFolders = await graphApiClient.makeRequest(`${mailboxBase}/mailFolders/${folderId}/childFolders`, {
           select: 'id,displayName,unreadItemCount,totalItemCount'
         });
 

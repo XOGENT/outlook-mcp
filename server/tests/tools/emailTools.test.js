@@ -3,6 +3,21 @@ import { getEmailTool } from '../../tools/email/listEmails.js';
 import { searchEmailsTool } from '../../tools/email/searchEmails.js';
 import { stripHtml, truncateText } from '../../utils/textUtils.js';
 
+function createMockRegistry(mockGraphApiClient) {
+  const account = { accountId: 't1:u1', email: 'a@test.com', userId: 'u1' };
+  const manager = {
+    ensureAuthenticated: vi.fn().mockResolvedValue(true),
+    getGraphApiClient: vi.fn().mockReturnValue(mockGraphApiClient),
+    getCurrentUser: () => ({ id: 'u1', accountId: 't1:u1' }),
+  };
+  return {
+    listAccounts: vi.fn().mockResolvedValue([account]),
+    resolve: vi.fn().mockResolvedValue({ manager, account }),
+    resolveAll: vi.fn().mockResolvedValue([account]),
+    getAccount: vi.fn().mockResolvedValue(account),
+  };
+}
+
 describe('Email Tools Redesign', () => {
 
     describe('Text Utilities', () => {
@@ -25,7 +40,7 @@ describe('Email Tools Redesign', () => {
     });
 
     describe('getEmailTool', () => {
-        let mockAuthManager;
+        let mockRegistry;
         let mockGraphApiClient;
 
         beforeEach(() => {
@@ -33,10 +48,7 @@ describe('Email Tools Redesign', () => {
                 makeRequest: vi.fn(),
                 getFolderResolver: vi.fn()
             };
-            mockAuthManager = {
-                ensureAuthenticated: vi.fn().mockResolvedValue(true),
-                getGraphApiClient: vi.fn().mockReturnValue(mockGraphApiClient)
-            };
+            mockRegistry = createMockRegistry(mockGraphApiClient);
         });
 
         it('should return truncated text by default', async () => {
@@ -52,7 +64,7 @@ describe('Email Tools Redesign', () => {
 
             mockGraphApiClient.makeRequest.mockResolvedValue(mockEmail);
 
-            const result = await getEmailTool(mockAuthManager, { messageId: '123' });
+            const result = await getEmailTool(mockRegistry, { messageId: '123' });
             const content = JSON.parse(result.content[0].text);
 
             expect(content.body.contentType).toBe('text');
@@ -73,7 +85,7 @@ describe('Email Tools Redesign', () => {
 
             mockGraphApiClient.makeRequest.mockResolvedValue(mockEmail);
 
-            const result = await getEmailTool(mockAuthManager, {
+            const result = await getEmailTool(mockRegistry, {
                 messageId: '123',
                 truncate: false,
                 format: 'html'
@@ -87,18 +99,17 @@ describe('Email Tools Redesign', () => {
     });
 
     describe('searchEmailsTool', () => {
-        let mockAuthManager;
+        let mockRegistry;
         let mockGraphApiClient;
 
         beforeEach(() => {
             mockGraphApiClient = {
                 makeRequest: vi.fn(),
-                getFolderResolver: vi.fn()
+                getFolderResolver: vi.fn(() => ({
+                    resolveFoldersToIds: vi.fn().mockResolvedValue([]),
+                })),
             };
-            mockAuthManager = {
-                ensureAuthenticated: vi.fn().mockResolvedValue(true),
-                getGraphApiClient: vi.fn().mockReturnValue(mockGraphApiClient)
-            };
+            mockRegistry = createMockRegistry(mockGraphApiClient);
         });
 
         it('should not include body by default', async () => {
@@ -112,11 +123,12 @@ describe('Email Tools Redesign', () => {
 
             mockGraphApiClient.makeRequest.mockResolvedValue(mockResponse);
 
-            const result = await searchEmailsTool(mockAuthManager, { query: 'test' });
+            const result = await searchEmailsTool(mockRegistry, { query: 'test' });
             const content = JSON.parse(result.content[0].text);
 
             expect(content.emails[0].body).toBeUndefined();
             expect(content.emails[0].bodyPreview).toBe('Preview');
+            expect(content.emails[0].accountId).toBe('t1:u1');
         });
 
         it('should include truncated body when includeBody is true', async () => {
@@ -134,7 +146,7 @@ describe('Email Tools Redesign', () => {
 
             mockGraphApiClient.makeRequest.mockResolvedValue(mockResponse);
 
-            const result = await searchEmailsTool(mockAuthManager, {
+            const result = await searchEmailsTool(mockRegistry, {
                 query: 'test',
                 includeBody: true
             });

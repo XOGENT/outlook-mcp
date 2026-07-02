@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "outlook-mcp",
   "version": "1.0.0",
-  "description": "Connects your LLM to the Outlook setup. Read and write emails, contacts, and calendar events. ",
+  "description": "Connects your LLM to Outlook with multi-account support. Read and write emails, contacts, and calendar events.",
   "author": {
     "name": "XenoXilus",
     "email": "xenoxilus@gmail.com"
@@ -10,15 +10,17 @@
   "user_config": {
     "azure_client_id": {
       "type": "string",
-      "title": "Azure Client ID",
-      "description": "Azure Active Directory application (client) ID",
-      "required": true
+      "title": "Azure Client ID (Advanced)",
+      "description": "Optional BYO Azure application client ID. Leave empty to use the bundled hosted app.",
+      "required": false,
+      "default": ""
     },
     "azure_tenant_id": {
       "type": "string",
-      "title": "Azure Tenant ID", 
-      "description": "Azure Active Directory tenant (directory) ID",
-      "required": true
+      "title": "Azure Tenant ID (Advanced)",
+      "description": "Optional BYO Azure tenant ID. Leave empty for multi-tenant hosted app.",
+      "required": false,
+      "default": ""
     },
     "download_directory": {
       "type": "string",
