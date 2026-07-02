@@ -21,14 +21,87 @@ A Model Context Protocol (MCP) server that enables AI assistants to interact wit
 
 | Method | Best For |
 |--------|----------|
+| [Docker](#docker-recommended) | Servers, CI, remote MCP gateways, headless environments |
 | [DXT Extension](#installing-as-dxt-extension) | Claude Desktop users |
-| [CLI Configuration](#using-with-cli-tools) | Claude Code, mcp CLI, other MCP clients |
+| [Node.js CLI](#using-with-cli-tools) | Local development with browser OAuth |
 
 > **Getting started**: Install the server, then call `outlook_connect_account` to sign in. Azure app registration is optional — see [Azure Setup (Advanced)](#azure-setup-guide-advanced).
 
 ---
 
 ## Installation
+
+### Docker (Recommended)
+
+The recommended way to run outlook-mcp is in a Docker container. The image includes the server, uses **device-code OAuth** (no browser inside the container), and persists tokens on a mounted volume.
+
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+
+**1. Clone and build:**
+
+```bash
+git clone https://github.com/XOGENT/outlook-mcp.git
+cd outlook-mcp
+docker compose build
+```
+
+**2. Configure your MCP client:**
+
+Add this to your MCP servers configuration (Claude Code `~/.claude.json`, project `.mcp.json`, etc.):
+
+```json
+{
+  "outlook-mcp": {
+    "command": "docker",
+    "args": [
+      "compose",
+      "-f", "/absolute/path/to/outlook-mcp/docker-compose.yml",
+      "run", "--rm", "-T", "outlook-mcp"
+    ]
+  }
+}
+```
+
+Or use `docker run` directly (after `docker compose build` tags the image as `outlook-mcp:local`):
+
+```json
+{
+  "outlook-mcp": {
+    "command": "docker",
+    "args": [
+      "run", "-i", "--rm",
+      "-v", "outlook-mcp-data:/data",
+      "-e", "MCP_OUTLOOK_HEADLESS=true",
+      "-e", "MCP_OUTLOOK_DATA_DIR=/data",
+      "-e", "MCP_OUTLOOK_WORK_DIR=/data/downloads",
+      "outlook-mcp:local"
+    ]
+  }
+}
+```
+
+Replace `/absolute/path/to/outlook-mcp` with the path where you cloned the repo.
+
+**3. Connect your account:**
+
+1. Start your MCP client and call **`outlook_connect_account`**
+2. The response includes a device login URL and code
+3. Open https://microsoft.com/devicelogin on any device and enter the code
+4. Repeat for additional accounts
+
+**Manual test run:**
+
+```bash
+docker compose run --rm outlook-mcp
+```
+
+You should see `Outlook MCP server is ready and connected`.
+
+**Data persistence:** Tokens and account registry are stored in the `outlook-mcp-data` Docker volume at `/data/accounts/`. Back up this volume to preserve connected accounts across container restarts.
+
+See [docs/docker.md](docs/docker.md) for environment variables, security notes, and advanced deployment options.
+
+---
 
 ### Installing as DXT Extension
 
@@ -45,7 +118,7 @@ For Claude Desktop users, DXT extensions provide the simplest installation exper
 **Option 2: Build from Source**
 1. Clone and install dependencies:
    ```bash
-   git clone https://github.com/XenoXilus/outlook-mcp.git
+   git clone https://github.com/XOGENT/outlook-mcp.git
    cd outlook-mcp
    npm install
    ```
@@ -58,13 +131,13 @@ For Claude Desktop users, DXT extensions provide the simplest installation exper
 
 ---
 
-### Using with CLI Tools
+### Using with CLI Tools (Node.js)
 
-For CLI-based MCP clients (Claude Code, mcp CLI, etc.), configure the server directly.
+For local development or MCP clients that run Node.js directly on your machine (browser-based OAuth).
 
 **1. Clone and Install:**
 ```bash
-git clone https://github.com/XenoXilus/outlook-mcp.git
+git clone https://github.com/XOGENT/outlook-mcp.git
 cd outlook-mcp
 npm install
 ```
@@ -79,33 +152,36 @@ Add the following to your MCP servers configuration (location varies by client):
     "command": "node",
     "args": ["/absolute/path/to/outlook-mcp/server/index.js"],
     "env": {
-      "AZURE_CLIENT_ID": "your-azure-client-id",
-      "AZURE_TENANT_ID": "your-azure-tenant-id",
-      "MCP_OUTLOOK_WORK_DIR": "/optional/download/directory"
+      "MCP_OUTLOOK_DATA_DIR": "/absolute/path/to/outlook-mcp/.tokens",
+      "MCP_OUTLOOK_WORK_DIR": "/absolute/path/to/outlook-mcp/.downloads"
     }
   }
 }
 ```
 
+`AZURE_CLIENT_ID` and `AZURE_TENANT_ID` are optional — omit them to use the default hosted OAuth app. Set them only if your organization requires a BYO Azure app (see [Azure Setup](#azure-setup-guide-advanced)).
+
 **Common config file locations:**
 - **Claude Code**: `~/.claude.json` or project-level `.mcp.json`
 - **mcp CLI**: `~/.config/mcp/servers.json`
 
-**3. Alternative: Use environment variables**
+**3. Optional: Use environment variables**
 
 Instead of specifying `env` in the config, you can export the variables in your shell:
 
 ```bash
+export MCP_OUTLOOK_DATA_DIR="/absolute/path/to/outlook-mcp/.tokens"
+export MCP_OUTLOOK_WORK_DIR="/absolute/path/to/outlook-mcp/.downloads"
+# Optional BYO Azure app:
 export AZURE_CLIENT_ID="your-azure-client-id"
 export AZURE_TENANT_ID="your-azure-tenant-id"
-export MCP_OUTLOOK_WORK_DIR="/optional/download/directory"
 ```
 
 ---
 
 ## Multi-Account Setup
 
-1. Call **`outlook_connect_account`** to sign in (browser on desktop, device code in Docker/headless)
+1. Call **`outlook_connect_account`** to sign in (browser on desktop, device code in Docker)
 2. Repeat for each additional Microsoft account / tenant
 3. Use **`outlook_list_accounts`** to see connected accounts
 4. **Search & calendar list tools** query all accounts by default
@@ -115,12 +191,6 @@ export MCP_OUTLOOK_WORK_DIR="/optional/download/directory"
 ### Shared mailboxes
 
 Pass the `mailbox` parameter (e.g. `billing@contoso.com`) to access shared/delegated mailboxes via `/users/{mailbox}` paths.
-
----
-
-## Docker (Headless)
-
-See [docs/docker.md](docs/docker.md) for container deployment with device-code OAuth and persistent token storage.
 
 ---
 
@@ -173,18 +243,20 @@ Personal Microsoft accounts can also register apps in Azure:
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `AZURE_CLIENT_ID` | Yes | Your Azure AD application client ID |
-| `AZURE_TENANT_ID` | Yes | Your Azure AD directory (tenant) ID |
-| `MCP_OUTLOOK_WORK_DIR` | No | Directory for saving large files (defaults to system temp) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `MCP_OUTLOOK_DATA_DIR` | No | `.tokens` (local) / `/data` (Docker) | Token storage and account registry directory |
+| `MCP_OUTLOOK_WORK_DIR` | No | `.downloads` (local) / `/data/downloads` (Docker) | Directory for large attachment downloads |
+| `MCP_OUTLOOK_HEADLESS` | No | `true` in Docker image | Use device-code OAuth instead of browser flow |
+| `AZURE_CLIENT_ID` | No | bundled default | BYO Azure AD application client ID |
+| `AZURE_TENANT_ID` | No | `organizations` | BYO Azure AD tenant ID |
 
 ### Large File Handling
 
 When downloading large attachments or SharePoint files, the server automatically detects when the response would exceed the MCP 1MB limit and saves the content to local files instead.
 
-- If `MCP_OUTLOOK_WORK_DIR` is set, large files are saved to this directory
-- If not set, files are saved to the system temp directory
+- In Docker, files are saved to `MCP_OUTLOOK_WORK_DIR` (`/data/downloads` by default)
+- Locally, files are saved to `MCP_OUTLOOK_WORK_DIR` or the system temp directory
 - Files are automatically named with timestamps to avoid conflicts
 - Old files are periodically cleaned up to manage disk space
 
@@ -222,12 +294,18 @@ The server automatically parses:
 
 ## Authentication
 
-The server uses OAuth 2.0 with PKCE for secure authentication:
+The server uses OAuth 2.0 for secure authentication:
 
-1. First run will open a browser for Microsoft authentication
-2. Tokens are encrypted and stored locally (uses OS keychain if available, otherwise encrypted file storage)
+| Environment | OAuth flow | How to sign in |
+|-------------|------------|----------------|
+| **Docker / headless** | Device code | Call `outlook_connect_account`, then visit https://microsoft.com/devicelogin with the code from the response |
+| **Local Node.js** | PKCE (browser) | Call `outlook_connect_account` — a browser window opens for Microsoft sign-in |
+
+**Token storage:**
+1. Tokens are encrypted and stored under `MCP_OUTLOOK_DATA_DIR` (Docker volume at `/data`, local default `.tokens`)
+2. Per-account storage supports multiple connected Microsoft accounts
 3. Automatic token refresh for long-term usage
-4. No sensitive data stored in plain text
+4. OS keychain is used when available locally; Docker always uses encrypted file storage
 
 ### Required Permissions
 
@@ -244,6 +322,12 @@ The app requests these Microsoft Graph permissions:
 
 ## Troubleshooting
 
+### Docker Issues
+- **Problem**: `EACCES: permission denied, mkdir '/app/.tokens'`
+- **Solution**: Rebuild the image (`docker compose build`) and ensure the data volume is mounted. The server must write to `/data`, not `/app`.
+- **Problem**: Container exits immediately
+- **Solution**: MCP clients need stdio — use `docker compose run --rm -T` or the `docker run -i` config above. Do not use `docker compose up` without an attached MCP client.
+
 ### Large File Issues
 - **Problem**: "Result exceeds maximum length" error
 - **Solution**: Ensure `MCP_OUTLOOK_WORK_DIR` is set and writable
@@ -251,8 +335,9 @@ The app requests these Microsoft Graph permissions:
 
 ### Authentication Issues
 - **Problem**: Authentication failures
-- **Solution**: Verify Azure AD app permissions and client ID
-- **Reset**: Clear stored tokens and re-authenticate
+- **Solution**: Verify Azure AD app permissions if using a BYO app; otherwise call `outlook_connect_account` again
+- **Docker**: Complete device-code sign-in at https://microsoft.com/devicelogin before retrying tools
+- **Reset**: Remove the Docker volume (`docker volume rm outlook-mcp-data`) or delete `MCP_OUTLOOK_DATA_DIR` locally, then reconnect
 
 ### SharePoint Access Issues
 - **Problem**: Cannot access SharePoint files
@@ -266,6 +351,8 @@ The app requests these Microsoft Graph permissions:
 ### Project Structure
 ```
 outlook-mcp/
+├── Dockerfile              # Container image for headless deployment
+├── docker-compose.yml      # Local Docker setup with persistent volume
 ├── server/
 │   ├── index.js              # Main MCP server
 │   ├── auth/                 # Authentication management

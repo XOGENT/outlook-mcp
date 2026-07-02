@@ -19,6 +19,8 @@ For MCP clients, configure stdio transport:
       "run", "-i", "--rm",
       "-v", "outlook-mcp-data:/data",
       "-e", "MCP_OUTLOOK_HEADLESS=true",
+      "-e", "MCP_OUTLOOK_DATA_DIR=/data",
+      "-e", "MCP_OUTLOOK_WORK_DIR=/data/downloads",
       "outlook-mcp:local"
     ]
   }

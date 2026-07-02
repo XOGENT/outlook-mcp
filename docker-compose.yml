@@ -1,5 +1,6 @@
 services:
   outlook-mcp:
+    image: outlook-mcp:local
     build: .
     stdin_open: true
     volumes:
