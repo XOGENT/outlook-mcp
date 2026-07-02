@@ -30,8 +30,6 @@ process.on('uncaughtException', (error) => {
     const {
       ListToolsRequestSchema,
       CallToolRequestSchema,
-      InitializeRequestSchema,
-      InitializedNotificationSchema,
       ListPromptsRequestSchema,
       GetPromptRequestSchema
     } = await import('@modelcontextprotocol/sdk/types.js');
@@ -129,29 +127,9 @@ process.on('uncaughtException', (error) => {
     const registry = authManagerRegistry;
     await registry.initialize();
 
-    server.setRequestHandler(InitializeRequestSchema, async (request) => {
-      console.error('Debug: Handling MCP initialization...');
-      console.error('Debug: Initialize request:', JSON.stringify(request, null, 2));
-
-      const response = {
-        protocolVersion: '2025-06-18',
-        capabilities: {
-          tools: {},
-          prompts: {},
-        },
-        serverInfo: {
-          name: 'outlook-mcp',
-          version: '1.0.0',
-        },
-      };
-
-      console.error('Debug: Initialize response:', JSON.stringify(response, null, 2));
-      return response;
-    });
-
-    server.setNotificationHandler(InitializedNotificationSchema, async () => {
+    server.oninitialized = () => {
       console.error('Debug: Client initialized');
-    });
+    };
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       console.error(`Debug: Returning ${allToolSchemas.length} tools to client`);
