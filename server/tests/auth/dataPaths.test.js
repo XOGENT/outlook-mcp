@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { getDataDir, getAccountsDir, getAccountDir, getRegistryPath, getWorkDir } from '../../auth/dataPaths.js';
+import { getDataDir, getAccountsDir, getAccountDir, getRegistryPath, getWorkDir, getLegacyTokensDir } from '../../auth/dataPaths.js';
 
 describe('dataPaths', () => {
   let originalDataDir;
@@ -32,5 +32,13 @@ describe('dataPaths', () => {
   it('resolves account and work directories', () => {
     expect(getAccountDir('tenant:user')).toContain('tenant_user');
     expect(getWorkDir()).toBe(path.join(process.env.MCP_OUTLOOK_DATA_DIR, 'downloads'));
+  });
+
+  it('uses data volume for legacy tokens in headless mode', () => {
+    delete process.env.MCP_OUTLOOK_DATA_DIR;
+    process.env.MCP_OUTLOOK_HEADLESS = 'true';
+    expect(getDataDir()).toBe('/data');
+    expect(getLegacyTokensDir()).toBe('/data/.legacy-tokens');
+    delete process.env.MCP_OUTLOOK_HEADLESS;
   });
 });
