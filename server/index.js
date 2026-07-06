@@ -22,25 +22,38 @@ process.on('uncaughtException', (error) => {
   }
 });
 
-let appContextPromise = null;
+let catalogContextPromise = null;
+let runtimeContextPromise = null;
 
-async function getAppContext() {
-  if (!appContextPromise) {
-    appContextPromise = loadAppContext();
+async function getCatalogContext() {
+  if (!catalogContextPromise) {
+    catalogContextPromise = loadCatalogContext();
   }
-  return appContextPromise;
+  return catalogContextPromise;
 }
 
-async function loadAppContext() {
+async function loadCatalogContext() {
+  await import('dotenv/config');
+  const { allToolSchemas } = await import('./schemas/toolSchemas.js');
+  const { promptList, getPrompt } = await import('./prompts/index.js');
+  return { allToolSchemas, promptList, getPrompt };
+}
+
+async function getRuntimeContext() {
+  if (!runtimeContextPromise) {
+    runtimeContextPromise = loadRuntimeContext();
+  }
+  return runtimeContextPromise;
+}
+
+async function loadRuntimeContext() {
   console.error('Debug: Loading application modules...');
   await import('dotenv/config');
 
   const { authManagerRegistry } = await import('./auth/authManagerRegistry.js');
   const { getStartupConfig } = await import('./auth/defaultApp.js');
   const { createProtocolError, ErrorCodes, convertErrorToToolError } = await import('./utils/mcpErrorResponse.js');
-  const { allToolSchemas } = await import('./schemas/toolSchemas.js');
   const tools = await import('./tools/index.js');
-  const { promptList, getPrompt } = await import('./prompts/index.js');
 
   const registry = authManagerRegistry;
   await registry.initialize();
@@ -49,19 +62,21 @@ async function loadAppContext() {
   console.error(`Debug: Auth mode = ${startupConfig.authMode}`);
   console.error(`Debug: AZURE_CLIENT_ID = ${process.env.AZURE_CLIENT_ID ? 'SET (BYO)' : 'using default'}`);
   console.error(`Debug: AZURE_TENANT_ID = ${process.env.AZURE_TENANT_ID ? 'SET (BYO)' : 'using organizations'}`);
-  console.error(`Debug: Loaded ${allToolSchemas.length} tool schemas`);
   console.error('Call outlook_connect_account to sign in, or use an existing connected account.');
 
   return {
     registry,
-    allToolSchemas,
     tools,
-    promptList,
-    getPrompt,
     createProtocolError,
     ErrorCodes,
     convertErrorToToolError,
   };
+}
+
+function warmRuntimeContext() {
+  getRuntimeContext().catch((error) => {
+    console.error('Background runtime load failed:', error);
+  });
 }
 
 const server = new Server(
@@ -79,16 +94,17 @@ const server = new Server(
 
 server.oninitialized = () => {
   console.error('Debug: Client initialized');
+  warmRuntimeContext();
 };
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  const { allToolSchemas } = await getAppContext();
+  const { allToolSchemas } = await getCatalogContext();
   console.error(`Debug: Returning ${allToolSchemas.length} tools to client`);
   return { tools: allToolSchemas };
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const ctx = await getAppContext();
+  const ctx = await getRuntimeContext();
   const { name, arguments: args } = request.params;
   console.error(`DEBUG Tool Dispatch: Called tool '${name}' with args:`, JSON.stringify(args, null, 2));
 
@@ -215,19 +231,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 server.setRequestHandler(ListPromptsRequestSchema, async () => {
-  const { promptList } = await getAppContext();
+  const { promptList } = await getCatalogContext();
   console.error(`Debug: Returning ${promptList.length} prompts to client`);
   return { prompts: promptList };
 });
 
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  const { getPrompt, convertErrorToToolError } = await getAppContext();
+  const { getPrompt } = await getCatalogContext();
   const { name, arguments: args } = request.params;
   console.error(`Debug: Getting prompt '${name}' with args:`, JSON.stringify(args, null, 2));
   try {
     return await getPrompt(name, args);
   } catch (error) {
     console.error(`Error getting prompt ${name}:`, error);
+    const { convertErrorToToolError } = await import('./utils/mcpErrorResponse.js');
     throw convertErrorToToolError(error, `Failed to get prompt ${name}`);
   }
 });
