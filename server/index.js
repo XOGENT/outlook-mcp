@@ -1,366 +1,243 @@
 #!/usr/bin/env node
 
-// Add global error handlers for debugging
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   console.error('Stack trace:', reason.stack || 'No stack trace available');
-  // Don't exit immediately - let the MCP server handle errors gracefully
 });
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   console.error('Stack trace:', error.stack);
-  // Only exit on truly fatal errors
   if (error.code === 'MODULE_NOT_FOUND' || error.name === 'SyntaxError') {
     process.exit(1);
   }
 });
 
-// Main initialization function using IIFE to handle async imports
-(async function initializeServer() {
-  console.error('Debug: Script starting...');
+let appContextPromise = null;
+
+async function getAppContext() {
+  if (!appContextPromise) {
+    appContextPromise = loadAppContext();
+  }
+  return appContextPromise;
+}
+
+async function loadAppContext() {
+  console.error('Debug: Loading application modules...');
+  await import('dotenv/config');
+
+  const { authManagerRegistry } = await import('./auth/authManagerRegistry.js');
+  const { getStartupConfig } = await import('./auth/defaultApp.js');
+  const { createProtocolError, ErrorCodes, convertErrorToToolError } = await import('./utils/mcpErrorResponse.js');
+  const { allToolSchemas } = await import('./schemas/toolSchemas.js');
+  const tools = await import('./tools/index.js');
+  const { promptList, getPrompt } = await import('./prompts/index.js');
+
+  const registry = authManagerRegistry;
+  await registry.initialize();
+
+  const startupConfig = getStartupConfig();
+  console.error(`Debug: Auth mode = ${startupConfig.authMode}`);
+  console.error(`Debug: AZURE_CLIENT_ID = ${process.env.AZURE_CLIENT_ID ? 'SET (BYO)' : 'using default'}`);
+  console.error(`Debug: AZURE_TENANT_ID = ${process.env.AZURE_TENANT_ID ? 'SET (BYO)' : 'using organizations'}`);
+  console.error(`Debug: Loaded ${allToolSchemas.length} tool schemas`);
+  console.error('Call outlook_connect_account to sign in, or use an existing connected account.');
+
+  return {
+    registry,
+    allToolSchemas,
+    tools,
+    promptList,
+    getPrompt,
+    createProtocolError,
+    ErrorCodes,
+    convertErrorToToolError,
+  };
+}
+
+const server = new Server(
+  {
+    name: 'outlook-mcp',
+    version: '1.0.2',
+  },
+  {
+    capabilities: {
+      tools: {},
+      prompts: {},
+    },
+  }
+);
+
+server.oninitialized = () => {
+  console.error('Debug: Client initialized');
+};
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const { allToolSchemas } = await getAppContext();
+  console.error(`Debug: Returning ${allToolSchemas.length} tools to client`);
+  return { tools: allToolSchemas };
+});
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const ctx = await getAppContext();
+  const { name, arguments: args } = request.params;
+  console.error(`DEBUG Tool Dispatch: Called tool '${name}' with args:`, JSON.stringify(args, null, 2));
+
+  const {
+    registry,
+    tools,
+    createProtocolError,
+    ErrorCodes,
+    convertErrorToToolError,
+  } = ctx;
 
   try {
-    console.error('Debug: Loading dotenv...');
-    await import('dotenv/config');
-
-    console.error('Debug: Loading MCP SDK...');
-    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
-    const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-    const {
-      ListToolsRequestSchema,
-      CallToolRequestSchema,
-      ListPromptsRequestSchema,
-      GetPromptRequestSchema
-    } = await import('@modelcontextprotocol/sdk/types.js');
-
-    console.error('Debug: Loading auth registry...');
-    const { authManagerRegistry } = await import('./auth/authManagerRegistry.js');
-    const { getStartupConfig } = await import('./auth/defaultApp.js');
-
-    console.error('Debug: Loading MCP error utilities...');
-    const { createToolError, createProtocolError, ErrorCodes, convertErrorToToolError } = await import('./utils/mcpErrorResponse.js');
-
-    console.error('Debug: Loading tool schemas...');
-    const { allToolSchemas } = await import('./schemas/toolSchemas.js');
-    console.error(`Debug: Loaded ${allToolSchemas.length} tool schemas`);
-
-    console.error('Debug: Loading tools...');
-    const tools = await import('./tools/index.js');
-    console.error('Debug: Tools imported, available:', Object.keys(tools).length);
-
-    console.error('Debug: Loading prompts...');
-    const { promptList, getPrompt } = await import('./prompts/index.js');
-
-    // Extract the specific tools we need
-    const {
-      listEmailsTool,
-      sendEmailTool,
-      listEventsTool,
-      createEventTool,
-      getEventTool,
-      updateEventTool,
-      deleteEventTool,
-      respondToInviteTool,
-      validateEventDateTimesTool,
-      createRecurringEventTool,
-      findMeetingTimesTool,
-      checkAvailabilityTool,
-      scheduleOnlineMeetingTool,
-      listCalendarsTool,
-      getCalendarViewTool,
-      getBusyTimesTool,
-      buildRecurrencePatternTool,
-      createRecurrenceHelperTool,
-      checkCalendarPermissionsTool,
-      getEmailTool,
-      searchEmailsTool,
-      createDraftTool,
-      replyToEmailTool,
-      replyAllTool,
-      forwardEmailTool,
-      deleteEmailTool,
-      // Email Management Tools
-      moveEmailTool,
-      markAsReadTool,
-      flagEmailTool,
-      categorizeEmailTool,
-      archiveEmailTool,
-      batchProcessEmailsTool,
-      // Folder Management Tools
-      listFoldersTool,
-      createFolderTool,
-      renameFolderTool,
-      getFolderStatsTool,
-      // Attachment Tools
-      listAttachmentsTool,
-      downloadAttachmentTool,
-      addAttachmentTool,
-      scanAttachmentsTool,
-      // SharePoint Tools
-      getSharePointFileTool,
-      listSharePointFilesTool,
-      resolveSharePointLinkTool,
-      connectAccountTool,
-      listAccountsTool,
-      disconnectAccountTool,
-      setDefaultAccountTool,
-      listAccessibleMailboxesTool,
-    } = tools;
-
-    console.error('Debug: All required tools extracted successfully');
-    console.error('Debug: All imports successful');
-
-    const server = new Server(
-      {
-        name: 'outlook-mcp',
-        version: '1.0.2',
-      },
-      {
-        capabilities: {
-          tools: {},
-          prompts: {},
-        },
-      }
-    );
-
-    const registry = authManagerRegistry;
-    await registry.initialize();
-
-    server.oninitialized = () => {
-      console.error('Debug: Client initialized');
-    };
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      console.error(`Debug: Returning ${allToolSchemas.length} tools to client`);
-      return {
-        tools: allToolSchemas,
-      };
-    });
-
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      console.error(`DEBUG Tool Dispatch: Called tool '${name}' with args:`, JSON.stringify(args, null, 2));
-
-      try {
-        switch (name) {
-          case 'outlook_list_emails':
-            console.error(`DEBUG: Calling listEmailsTool`);
-            return await listEmailsTool(registry, args);
-
-          case 'outlook_send_email':
-            console.error(`DEBUG: Calling sendEmailTool`);
-            return await sendEmailTool(registry, args);
-
-          case 'outlook_list_events':
-            console.error(`DEBUG: Calling listEventsTool`);
-            return await listEventsTool(registry, args);
-
-          case 'outlook_create_event':
-            console.error(`DEBUG: Calling createEventTool`);
-            return await createEventTool(registry, args);
-
-          case 'outlook_get_event':
-            return await getEventTool(registry, args);
-
-          case 'outlook_update_event':
-            return await updateEventTool(registry, args);
-
-          case 'outlook_delete_event':
-            return await deleteEventTool(registry, args);
-
-          case 'outlook_respond_to_invite':
-            return await respondToInviteTool(registry, args);
-
-          case 'outlook_validate_event_datetimes':
-            return await validateEventDateTimesTool(registry, args);
-
-          case 'outlook_create_recurring_event':
-            return await createRecurringEventTool(registry, args);
-
-          case 'outlook_find_meeting_times':
-            return await findMeetingTimesTool(registry, args);
-
-          case 'outlook_check_availability':
-            return await checkAvailabilityTool(registry, args);
-
-          case 'outlook_schedule_online_meeting':
-            return await scheduleOnlineMeetingTool(registry, args);
-
-          case 'outlook_list_calendars':
-            return await listCalendarsTool(registry, args);
-
-          case 'outlook_get_calendar_view':
-            return await getCalendarViewTool(registry, args);
-
-          case 'outlook_get_busy_times':
-            return await getBusyTimesTool(registry, args);
-
-          case 'outlook_build_recurrence_pattern':
-            return await buildRecurrencePatternTool(registry, args);
-
-          case 'outlook_create_recurrence_helper':
-            return await createRecurrenceHelperTool(registry, args);
-
-          case 'outlook_check_calendar_permissions':
-            return await checkCalendarPermissionsTool(registry, args);
-
-          case 'outlook_get_email':
-            console.error(`DEBUG: Calling getEmailTool`);
-            return await getEmailTool(registry, args);
-
-          case 'outlook_search_emails':
-            return await searchEmailsTool(registry, args);
-
-          case 'outlook_create_draft':
-            return await createDraftTool(registry, args);
-
-          case 'outlook_reply_to_email':
-            return await replyToEmailTool(registry, args);
-
-          case 'outlook_reply_all':
-            return await replyAllTool(registry, args);
-
-          case 'outlook_forward_email':
-            return await forwardEmailTool(registry, args);
-
-          case 'outlook_delete_email':
-            return await deleteEmailTool(registry, args);
-
-          case 'outlook_move_email':
-            return await moveEmailTool(registry, args);
-
-          case 'outlook_mark_as_read':
-            return await markAsReadTool(registry, args);
-
-          case 'outlook_flag_email':
-            return await flagEmailTool(registry, args);
-
-          case 'outlook_categorize_email':
-            return await categorizeEmailTool(registry, args);
-
-          case 'outlook_archive_email':
-            return await archiveEmailTool(registry, args);
-
-          case 'outlook_batch_process_emails':
-            return await batchProcessEmailsTool(registry, args);
-
-          case 'outlook_list_folders':
-            return await listFoldersTool(registry, args);
-
-          case 'outlook_create_folder':
-            return await createFolderTool(registry, args);
-
-          case 'outlook_rename_folder':
-            return await renameFolderTool(registry, args);
-
-          case 'outlook_get_folder_stats':
-            return await getFolderStatsTool(registry, args);
-
-          case 'outlook_list_attachments':
-            return await listAttachmentsTool(registry, args);
-
-          case 'outlook_download_attachment':
-            return await downloadAttachmentTool(registry, args);
-
-          case 'outlook_add_attachment':
-            return await addAttachmentTool(registry, args);
-
-          case 'outlook_scan_attachments':
-            return await scanAttachmentsTool(registry, args);
-
-          case 'outlook_get_sharepoint_file':
-            return await getSharePointFileTool(registry, args);
-
-          case 'outlook_list_sharepoint_files':
-            return await listSharePointFilesTool(registry, args);
-
-          case 'outlook_resolve_sharepoint_link':
-            return await resolveSharePointLinkTool(registry, args);
-
-          case 'outlook_connect_account':
-            return await connectAccountTool(registry, args);
-
-          case 'outlook_list_accounts':
-            return await listAccountsTool(registry, args);
-
-          case 'outlook_disconnect_account':
-            return await disconnectAccountTool(registry, args);
-
-          case 'outlook_set_default_account':
-            return await setDefaultAccountTool(registry, args);
-
-          case 'outlook_list_accessible_mailboxes':
-            return await listAccessibleMailboxesTool(registry, args);
-
-          default:
-            return createProtocolError(
-              ErrorCodes.METHOD_NOT_FOUND,
-              `Unknown tool: ${name}`,
-              { availableTools: Object.keys(tools).filter(key => key.endsWith('Tool')) }
-            );
-        }
-      } catch (error) {
-        console.error('Unexpected error in tool handler:', error);
-
-        // If it's already an MCP error response, return it as-is
-        if (error.content && error.isError !== undefined) {
-          return error;
-        }
-
-        // Convert other errors to MCP tool error format
-        return convertErrorToToolError(error, 'Tool execution failed');
-      }
-    });
-
-    server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      console.error(`Debug: Returning ${promptList.length} prompts to client`);
-      return {
-        prompts: promptList,
-      };
-    });
-
-    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      console.error(`Debug: Getting prompt '${name}' with args:`, JSON.stringify(args, null, 2));
-      try {
-        return await getPrompt(name, args);
-      } catch (error) {
-        console.error(`Error getting prompt ${name}:`, error);
-        throw convertErrorToToolError(error, `Failed to get prompt ${name}`);
-      }
-    });
-
-    // Start the server
-    async function main() {
-      console.error('Debug: Starting main function...');
-      const startupConfig = getStartupConfig();
-      console.error(`Debug: Auth mode = ${startupConfig.authMode}`);
-      console.error(`Debug: AZURE_CLIENT_ID = ${process.env.AZURE_CLIENT_ID ? 'SET (BYO)' : 'using default'}`);
-      console.error(`Debug: AZURE_TENANT_ID = ${process.env.AZURE_TENANT_ID ? 'SET (BYO)' : 'using organizations'}`);
-
-      console.error('Starting Outlook MCP Server...');
-      console.error('Call outlook_connect_account to sign in, or use an existing connected account.');
-
-      try {
-        console.error('Debug: Creating StdioServerTransport...');
-        const transport = new StdioServerTransport();
-
-        console.error('Debug: Connecting server to transport...');
-        await server.connect(transport);
-
-        console.error('Outlook MCP server is ready and connected');
-
-      } catch (error) {
-        console.error('Error during server connection:', error);
-        throw error;
-      }
+    switch (name) {
+      case 'outlook_list_emails':
+        return await tools.listEmailsTool(registry, args);
+      case 'outlook_send_email':
+        return await tools.sendEmailTool(registry, args);
+      case 'outlook_list_events':
+        return await tools.listEventsTool(registry, args);
+      case 'outlook_create_event':
+        return await tools.createEventTool(registry, args);
+      case 'outlook_get_event':
+        return await tools.getEventTool(registry, args);
+      case 'outlook_update_event':
+        return await tools.updateEventTool(registry, args);
+      case 'outlook_delete_event':
+        return await tools.deleteEventTool(registry, args);
+      case 'outlook_respond_to_invite':
+        return await tools.respondToInviteTool(registry, args);
+      case 'outlook_validate_event_datetimes':
+        return await tools.validateEventDateTimesTool(registry, args);
+      case 'outlook_create_recurring_event':
+        return await tools.createRecurringEventTool(registry, args);
+      case 'outlook_find_meeting_times':
+        return await tools.findMeetingTimesTool(registry, args);
+      case 'outlook_check_availability':
+        return await tools.checkAvailabilityTool(registry, args);
+      case 'outlook_schedule_online_meeting':
+        return await tools.scheduleOnlineMeetingTool(registry, args);
+      case 'outlook_list_calendars':
+        return await tools.listCalendarsTool(registry, args);
+      case 'outlook_get_calendar_view':
+        return await tools.getCalendarViewTool(registry, args);
+      case 'outlook_get_busy_times':
+        return await tools.getBusyTimesTool(registry, args);
+      case 'outlook_build_recurrence_pattern':
+        return await tools.buildRecurrencePatternTool(registry, args);
+      case 'outlook_create_recurrence_helper':
+        return await tools.createRecurrenceHelperTool(registry, args);
+      case 'outlook_check_calendar_permissions':
+        return await tools.checkCalendarPermissionsTool(registry, args);
+      case 'outlook_get_email':
+        return await tools.getEmailTool(registry, args);
+      case 'outlook_search_emails':
+        return await tools.searchEmailsTool(registry, args);
+      case 'outlook_create_draft':
+        return await tools.createDraftTool(registry, args);
+      case 'outlook_reply_to_email':
+        return await tools.replyToEmailTool(registry, args);
+      case 'outlook_reply_all':
+        return await tools.replyAllTool(registry, args);
+      case 'outlook_forward_email':
+        return await tools.forwardEmailTool(registry, args);
+      case 'outlook_delete_email':
+        return await tools.deleteEmailTool(registry, args);
+      case 'outlook_move_email':
+        return await tools.moveEmailTool(registry, args);
+      case 'outlook_mark_as_read':
+        return await tools.markAsReadTool(registry, args);
+      case 'outlook_flag_email':
+        return await tools.flagEmailTool(registry, args);
+      case 'outlook_categorize_email':
+        return await tools.categorizeEmailTool(registry, args);
+      case 'outlook_archive_email':
+        return await tools.archiveEmailTool(registry, args);
+      case 'outlook_batch_process_emails':
+        return await tools.batchProcessEmailsTool(registry, args);
+      case 'outlook_list_folders':
+        return await tools.listFoldersTool(registry, args);
+      case 'outlook_create_folder':
+        return await tools.createFolderTool(registry, args);
+      case 'outlook_rename_folder':
+        return await tools.renameFolderTool(registry, args);
+      case 'outlook_get_folder_stats':
+        return await tools.getFolderStatsTool(registry, args);
+      case 'outlook_list_attachments':
+        return await tools.listAttachmentsTool(registry, args);
+      case 'outlook_download_attachment':
+        return await tools.downloadAttachmentTool(registry, args);
+      case 'outlook_add_attachment':
+        return await tools.addAttachmentTool(registry, args);
+      case 'outlook_scan_attachments':
+        return await tools.scanAttachmentsTool(registry, args);
+      case 'outlook_get_sharepoint_file':
+        return await tools.getSharePointFileTool(registry, args);
+      case 'outlook_list_sharepoint_files':
+        return await tools.listSharePointFilesTool(registry, args);
+      case 'outlook_resolve_sharepoint_link':
+        return await tools.resolveSharePointLinkTool(registry, args);
+      case 'outlook_connect_account':
+        return await tools.connectAccountTool(registry, args);
+      case 'outlook_list_accounts':
+        return await tools.listAccountsTool(registry, args);
+      case 'outlook_disconnect_account':
+        return await tools.disconnectAccountTool(registry, args);
+      case 'outlook_set_default_account':
+        return await tools.setDefaultAccountTool(registry, args);
+      case 'outlook_list_accessible_mailboxes':
+        return await tools.listAccessibleMailboxesTool(registry, args);
+      default:
+        return createProtocolError(
+          ErrorCodes.METHOD_NOT_FOUND,
+          `Unknown tool: ${name}`,
+          { availableTools: Object.keys(tools).filter(key => key.endsWith('Tool')) }
+        );
     }
-
-    await main();
-
   } catch (error) {
-    console.error('Server error:', error);
-    process.exit(1);
+    console.error('Unexpected error in tool handler:', error);
+    if (error.content && error.isError !== undefined) {
+      return error;
+    }
+    return convertErrorToToolError(error, 'Tool execution failed');
   }
-})();
+});
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  const { promptList } = await getAppContext();
+  console.error(`Debug: Returning ${promptList.length} prompts to client`);
+  return { prompts: promptList };
+});
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { getPrompt, convertErrorToToolError } = await getAppContext();
+  const { name, arguments: args } = request.params;
+  console.error(`Debug: Getting prompt '${name}' with args:`, JSON.stringify(args, null, 2));
+  try {
+    return await getPrompt(name, args);
+  } catch (error) {
+    console.error(`Error getting prompt ${name}:`, error);
+    throw convertErrorToToolError(error, `Failed to get prompt ${name}`);
+  }
+});
+
+try {
+  console.error('Debug: Connecting MCP transport...');
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error('Outlook MCP server is ready and connected');
+} catch (error) {
+  console.error('Server error:', error);
+  process.exit(1);
+}
