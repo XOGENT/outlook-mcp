@@ -8,6 +8,14 @@ export async function connectAccountTool(registry, args = {}) {
       if (result.error?.isError) return result.error;
       return convertErrorToToolError(new Error(result.error?.message || 'Connect failed'), 'Failed to connect account');
     }
+    if (result.pending) {
+      return createSafeResponse({
+        success: true,
+        pending: true,
+        authUrl: result.authUrl,
+        message: result.message,
+      });
+    }
     return createSafeResponse({
       success: true,
       account: result.account,

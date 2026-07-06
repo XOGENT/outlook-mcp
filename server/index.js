@@ -76,6 +76,18 @@ async function loadRuntimeContext() {
   };
 }
 
+let runtimeWarmScheduled = false;
+
+function scheduleRuntimeWarm() {
+  if (runtimeWarmScheduled) return;
+  runtimeWarmScheduled = true;
+  setImmediate(() => {
+    void getRuntimeContext().catch((error) => {
+      console.error('Background runtime preload failed:', error);
+    });
+  });
+}
+
 const server = new Server(
   {
     name: 'outlook-mcp',
@@ -96,6 +108,7 @@ server.oninitialized = () => {
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const { allToolSchemas } = await getCatalogContext();
   console.error(`Debug: Returning ${allToolSchemas.length} tools to client`);
+  scheduleRuntimeWarm();
   return { tools: allToolSchemas };
 });
 
@@ -229,6 +242,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 server.setRequestHandler(ListPromptsRequestSchema, async () => {
   const { promptList } = await getCatalogContext();
   console.error(`Debug: Returning ${promptList.length} prompts to client`);
+  scheduleRuntimeWarm();
   return { prompts: promptList };
 });
 

@@ -56,7 +56,7 @@ export class OutlookAuthManager {
       if (shouldUseDeviceCodeFlow()) {
         return await this.authenticateDeviceCode();
       }
-      return await this.authenticateInteractive();
+      return await this.authenticateInteractiveNonBlocking();
     } catch (error) {
       console.error('Connect authentication error:', error);
       this.isAuthenticated = false;
@@ -116,6 +116,50 @@ export class OutlookAuthManager {
       return { success: false, error: createAuthError('Failed to get authorization code', true) };
     }
 
+    return await this.completeInteractiveAuth(authorizationCode);
+  }
+
+  async authenticateInteractiveNonBlocking() {
+    const codeVerifier = this.tokenManager.generateCodeVerifier();
+    const codeChallenge = this.tokenManager.generateCodeChallenge(codeVerifier);
+    await this.tokenManager.storePKCEVerifier(codeVerifier, this.sessionId);
+
+    let listenInfo = null;
+    const codePromise = this.getAuthorizationCode(codeChallenge, {
+      onListening: (info) => {
+        listenInfo = info;
+      },
+    });
+
+    const deadline = Date.now() + 5000;
+    while (!listenInfo && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    if (!listenInfo) {
+      return { success: false, error: createAuthError('Failed to start authentication server', true) };
+    }
+
+    const authCompletion = codePromise
+      .then((authorizationCode) => this.completeInteractiveAuth(authorizationCode))
+      .catch((error) => {
+        console.error('Background interactive authentication failed:', error);
+        if (error?.isError) {
+          return { success: false, error };
+        }
+        return { success: false, error: createAuthError(error.message, true) };
+      });
+
+    return {
+      success: true,
+      pending: true,
+      message: 'Browser opened for Microsoft sign-in. Complete sign-in, then call outlook_list_accounts.',
+      authUrl: listenInfo.url,
+      authCompletion,
+    };
+  }
+
+  async completeInteractiveAuth(authorizationCode) {
     const tokenResponse = await this.exchangeCodeForToken(authorizationCode);
     await this.tokenManager.storeTokens(
       tokenResponse.access_token,
@@ -132,7 +176,7 @@ export class OutlookAuthManager {
     return await this.validateAuthentication();
   }
 
-  async getAuthorizationCode(codeChallenge) {
+  async getAuthorizationCode(codeChallenge, { onListening } = {}) {
     return new Promise((resolve, reject) => {
       const state = crypto.randomBytes(16).toString('hex');
       const authUrl = new URL(authConfig.oauth.authorizeUrl(this.authAuthority));
@@ -181,6 +225,7 @@ export class OutlookAuthManager {
         console.error(`Opening browser for Microsoft account selection...`);
         console.error(authUrl.toString());
         this.openBrowser(authUrl.toString());
+        onListening?.({ url: authUrl.toString(), port });
       });
 
       setTimeout(() => {

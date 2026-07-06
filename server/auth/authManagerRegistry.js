@@ -141,9 +141,44 @@ export class AuthManagerRegistry {
       return result;
     }
 
+    if (result.pending) {
+      result.authCompletion
+        .then((authResult) => this.finalizeConnectedAccount({
+          manager,
+          authResult,
+          clientId,
+          authority,
+          authMode,
+        }))
+        .catch((error) => {
+          console.error('Background account connection failed:', error);
+        });
+
+      return {
+        success: true,
+        pending: true,
+        message: result.message,
+        authUrl: result.authUrl,
+      };
+    }
+
+    return this.finalizeConnectedAccount({
+      manager,
+      authResult: result,
+      clientId,
+      authority,
+      authMode,
+    });
+  }
+
+  async finalizeConnectedAccount({ manager, authResult, clientId, authority, authMode }) {
+    if (!authResult.success) {
+      return authResult;
+    }
+
     const accessToken = await manager.tokenManager.getAccessToken();
     const claims = extractAccountClaims(accessToken);
-    const accountId = claims?.accountId || `${authority}:${result.user.id}`;
+    const accountId = claims?.accountId || `${authority}:${authResult.user.id}`;
 
     const finalManager = new OutlookAuthManager({
       accountId,
@@ -166,9 +201,9 @@ export class AuthManagerRegistry {
       tenantId: claims?.tenantId || authority,
       clientId,
       authMode,
-      userId: result.user.id,
-      email: result.user.mail,
-      displayName: result.user.displayName,
+      userId: authResult.user.id,
+      email: authResult.user.mail,
+      displayName: authResult.user.displayName,
     });
 
     managerCache.set(accountId, finalManager);
@@ -180,13 +215,13 @@ export class AuthManagerRegistry {
       success: true,
       account: {
         accountId,
-        email: result.user.mail,
-        displayName: result.user.displayName,
+        email: authResult.user.mail,
+        displayName: authResult.user.displayName,
         tenantId: claims?.tenantId || authority,
         authMode,
         isDefault: (await accountRegistry.listAccounts()).find(a => a.accountId === accountId)?.isDefault,
       },
-      deviceCodeInfo: result.deviceCodeInfo || null,
+      deviceCodeInfo: authResult.deviceCodeInfo || null,
     };
   }
 
