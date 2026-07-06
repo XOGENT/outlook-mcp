@@ -11,8 +11,8 @@ A Model Context Protocol (MCP) server that enables AI assistants to interact wit
 - **SharePoint Integration**: Access SharePoint files via sharing links or direct file IDs. Download files shared to you via emails. 
 - **Calendar Management**: View and manage calendar events and appointments
 - **Office Document Processing**: Parse PDF, Word, PowerPoint, and Excel files with extracted text content
-- **Multi-Account Support**: Connect multiple Microsoft accounts across tenants; search and calendar views fan out across all accounts
-- **Zero-Config OAuth**: Connect accounts via `outlook_connect_account` without manual Azure app setup (BYO app optional)
+- **Multi-Account / Multi-Tenant Support**: Connect multiple Microsoft accounts across tenants; search and calendar views fan out across all accounts. Onboard new tenants with a single admin-consent URL — no per-tenant app registration
+- **OAuth 2.0 + PKCE**: Connect accounts via `outlook_connect_account` (browser loopback flow) or device code (headless). Requires one multi-tenant Azure app — see [Azure Setup](#azure-setup-guide)
 - **Docker / Headless**: Run in a container with device-code OAuth — see [docs/docker.md](docs/docker.md)
 
 ## Quick Start
@@ -25,7 +25,7 @@ A Model Context Protocol (MCP) server that enables AI assistants to interact wit
 | [DXT Extension](#installing-as-dxt-extension) | Claude Desktop users |
 | [Node.js CLI](#using-with-cli-tools) | Local development with browser OAuth |
 
-> **Getting started**: Install the server, then call `outlook_connect_account` to sign in. Azure app registration is optional — see [Azure Setup (Advanced)](#azure-setup-guide-advanced).
+> **Getting started**: Register one multi-tenant Azure app (once), set `AZURE_CLIENT_ID`, then call `outlook_connect_account` to sign in. See [Azure Setup](#azure-setup-guide). Additional tenants are onboarded with `outlook_request_admin_consent` — no further registration.
 
 ---
 
@@ -194,39 +194,56 @@ Pass the `mailbox` parameter (e.g. `billing@contoso.com`) to access shared/deleg
 
 ---
 
-## Azure Setup Guide (Advanced)
+## Azure Setup Guide
 
-Azure app registration is **optional**. Use this section if your organization requires a BYO app or blocks third-party consent.
+OAuth requires an Azure AD application client ID — there is no bundled app. You
+register **one** app and reuse it for every account and tenant; the shipped
+default is a non-functional placeholder, so `outlook_connect_account` returns a
+setup message until `AZURE_CLIENT_ID` is set.
 
-To use the default hosted app, skip this section and call `outlook_connect_account` after install.
+### Register the app once (multi-tenant)
 
-### For Business/Work Accounts (Recommended)
-
-1. Go to the [Azure Portal](https://portal.azure.com/) and search for "App registrations".
-2. Click **New registration**.
+1. Go to the [Azure Portal](https://portal.azure.com/) → **App registrations** → **New registration**.
    - Name: `Outlook MCP` (or similar)
-   - Supported account types: **Accounts in this organizational directory only** (Single tenant)
-   - Redirect URI: Select **Web** and enter `http://localhost/callback`
-3. Click **Register**.
-4. Go to **Authentication** in the sidebar.
-   - Under "Advanced settings", set **Allow public client flows** to **Yes**.
-   - Click **Save**.
-5. On the Overview page, copy:
-   - **Application (client) ID** → This is your `AZURE_CLIENT_ID`
-   - **Directory (tenant) ID** → This is your `AZURE_TENANT_ID`
-6. Go to **API permissions** in the sidebar.
-   - Click **Add a permission** -> **Microsoft Graph** -> **Delegated permissions**.
-   - Add these permissions:
-     - `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`
-     - `Calendars.Read`, `Calendars.ReadWrite`
-     - `User.Read`, `MailboxSettings.Read`
-     - `Files.Read.All`, `Files.ReadWrite.All`
-     - `Sites.Read.All`, `Sites.ReadWrite.All`
+   - Supported account types: **Accounts in any organizational directory (multi-tenant)** — add "and personal Microsoft accounts" if you need outlook.com/hotmail.com too.
+   - Skip the redirect URI here (set it in the next step).
+2. Go to **Authentication** → **Add a platform** → **Mobile and desktop applications**.
+   - Enable the redirect URI `http://localhost` (the browser flow uses a random loopback port).
+   - Under **Advanced settings**, set **Allow public client flows** to **Yes** (required for PKCE and device code). Click **Save**.
+3. On the **Overview** page, copy **Application (client) ID** → this is your `AZURE_CLIENT_ID`.
+   - Leave `AZURE_TENANT_ID` unset for multi-tenant. Set it only to pin the app to one tenant.
+4. Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated permissions**, and add:
+     - `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `Mail.Read.Shared`, `Mail.ReadWrite.Shared`
+     - `Calendars.Read`, `Calendars.ReadWrite`, `Calendars.Read.Shared`, `Calendars.ReadWrite.Shared`
+     - `Contacts.Read`, `Contacts.ReadWrite`, `Tasks.Read`, `Tasks.ReadWrite`
+     - `User.Read`, `MailboxSettings.Read`, `Files.Read.All`, `Files.ReadWrite.All`
      - `offline_access`
-   - Click **Add permissions**.
-   - (Optional) If you are an admin, click **Grant admin consent** to suppress consent prompts for users.
+     - **Only if you enable SharePoint** (`OUTLOOK_MCP_ENABLE_SHAREPOINT=true`): `Sites.Read.All`, `Sites.ReadWrite.All` — these require admin consent.
 
 **Note:** No client secret is required (PKCE auth flow).
+
+### Onboarding additional tenants (admin consent)
+
+By default the server requests only [user-consentable scopes](#scopes), so users
+in a tenant that allows user consent can just run `outlook_connect_account` — no
+admin step. You only need admin consent when a tenant **blocks user consent** or
+when you enable the SharePoint scopes. In those cases:
+
+1. Run `outlook_request_admin_consent` with the tenant's domain or GUID (e.g. `{ "tenantId": "contoso.com" }`).
+2. Send the returned URL to an administrator of that tenant. Approving it grants the app org-wide consent.
+3. Users in that tenant can then run `outlook_connect_account` normally.
+
+No per-tenant app registration is ever required — one multi-tenant app serves all tenants.
+
+### Scopes
+
+| Env var | Default | Effect |
+|---------|---------|--------|
+| `OUTLOOK_MCP_ENABLE_SHAREPOINT` | unset | Set to `true` to add `Sites.*` (SharePoint) scopes — **requires tenant admin consent** |
+| `OUTLOOK_MCP_EXTRA_SCOPES` | unset | Space/comma-separated extra Graph scopes to append |
+
+The default scope set is limited to delegated permissions that individual users
+can consent to themselves (Microsoft Graph "Admin consent required: No").
 
 ### For Personal Accounts (outlook.com, hotmail.com)
 
@@ -248,8 +265,11 @@ Personal Microsoft accounts can also register apps in Azure:
 | `MCP_OUTLOOK_DATA_DIR` | No | `.tokens` (local) / `/data` (Docker) | Token storage and account registry directory |
 | `MCP_OUTLOOK_WORK_DIR` | No | `.downloads` (local) / `/data/downloads` (Docker) | Directory for large attachment downloads |
 | `MCP_OUTLOOK_HEADLESS` | No | `true` in Docker image | Use device-code OAuth instead of browser flow |
-| `AZURE_CLIENT_ID` | No | bundled default | BYO Azure AD application client ID |
-| `AZURE_TENANT_ID` | No | `organizations` | BYO Azure AD tenant ID |
+| `AZURE_CLIENT_ID` | **Yes** | placeholder (non-functional) | Azure AD application (client) ID. OAuth cannot start without a real value — see [Azure Setup](#azure-setup-guide) |
+| `AZURE_TENANT_ID` | No | `organizations` | Pin to a single tenant. Omit for multi-tenant |
+| `OUTLOOK_MCP_ENABLE_SHAREPOINT` | No | unset | `true` adds `Sites.*` SharePoint scopes (**requires admin consent**) |
+| `OUTLOOK_MCP_EXTRA_SCOPES` | No | unset | Extra Graph scopes to append (space/comma-separated) |
+| `MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT` | No | unset | Optional registered redirect URI appended to admin-consent URLs |
 
 ### Large File Handling
 

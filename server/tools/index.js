@@ -73,4 +73,5 @@ export { connectAccountTool } from './accounts/connectAccount.js';
 export { listAccountsTool } from './accounts/listAccounts.js';
 export { disconnectAccountTool } from './accounts/disconnectAccount.js';
 export { setDefaultAccountTool } from './accounts/setDefaultAccount.js';
+export { requestAdminConsentTool } from './accounts/requestAdminConsent.js';
 export { listAccessibleMailboxesTool } from './accounts/listAccessibleMailboxes.js';

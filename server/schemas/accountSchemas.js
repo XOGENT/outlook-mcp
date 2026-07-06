@@ -59,6 +59,28 @@ export const setDefaultAccountSchema = {
   },
 };
 
+export const requestAdminConsentSchema = {
+  name: 'outlook_request_admin_consent',
+  description:
+    'Generate a tenant-wide admin-consent URL for the configured multi-tenant app. '
+    + 'Give the URL to a tenant administrator to grant the app org-wide consent, after which '
+    + 'users in that tenant can connect. No per-tenant app registration is required.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      tenantId: {
+        type: 'string',
+        description: "Target tenant's domain (e.g. contoso.com) or directory (tenant) GUID.",
+      },
+      clientId: {
+        type: 'string',
+        description: 'Optional BYO Azure application client ID (defaults to the configured app).',
+      },
+    },
+    required: ['tenantId'],
+  },
+};
+
 export const listAccessibleMailboxesSchema = {
   name: 'outlook_list_accessible_mailboxes',
   description: 'List shared and delegated mailboxes accessible to an account',
@@ -78,6 +100,7 @@ export const accountSchemas = [
   listAccountsSchema,
   disconnectAccountSchema,
   setDefaultAccountSchema,
+  requestAdminConsentSchema,
   listAccessibleMailboxesSchema,
 ];
 
@@ -86,5 +109,6 @@ export const accountSchemaMap = {
   outlook_list_accounts: listAccountsSchema,
   outlook_disconnect_account: disconnectAccountSchema,
   outlook_set_default_account: setDefaultAccountSchema,
+  outlook_request_admin_consent: requestAdminConsentSchema,
   outlook_list_accessible_mailboxes: listAccessibleMailboxesSchema,
 };
