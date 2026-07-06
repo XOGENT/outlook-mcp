@@ -39,6 +39,9 @@ async function loadCatalogContext() {
   return { allToolSchemas, promptList, getPrompt };
 }
 
+// Preload catalog before the client sends tools/list (must not compete with runtime imports).
+void getCatalogContext();
+
 async function getRuntimeContext() {
   if (!runtimeContextPromise) {
     runtimeContextPromise = loadRuntimeContext();
@@ -73,12 +76,6 @@ async function loadRuntimeContext() {
   };
 }
 
-function warmRuntimeContext() {
-  getRuntimeContext().catch((error) => {
-    console.error('Background runtime load failed:', error);
-  });
-}
-
 const server = new Server(
   {
     name: 'outlook-mcp',
@@ -94,7 +91,6 @@ const server = new Server(
 
 server.oninitialized = () => {
   console.error('Debug: Client initialized');
-  warmRuntimeContext();
 };
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
