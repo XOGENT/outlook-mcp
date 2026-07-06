@@ -52,6 +52,14 @@ async function getStorage(accountId) {
   const instance = storage.create({
     dir,
     logging: false,
+    // The legacy store (accountId === null) is rooted at the data dir, which
+    // ALSO contains the per-account `accounts/` subdirectory. node-persist's
+    // expired-keys sweep enumerates the whole dir and does readFile() on every
+    // entry, throwing "EISDIR: illegal operation on a directory, read" when it
+    // hits `accounts/` — an unhandled rejection from its background timer.
+    // We never rely on node-persist's TTL sweep (token/PKCE expiry is managed
+    // explicitly), so disable the interval to stop it scanning subdirectories.
+    expiredInterval: false,
   });
   await instance.init();
   storageInstances.set(key, instance);

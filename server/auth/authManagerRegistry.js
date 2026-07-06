@@ -208,15 +208,19 @@ export class AuthManagerRegistry {
     const url = new URL(authConfig.oauth.adminConsentUrl(tenant));
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('state', crypto.randomBytes(16).toString('hex'));
-    const redirectUri = process.env.MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT;
-    if (redirectUri) {
-      url.searchParams.set('redirect_uri', redirectUri);
-    }
+    // Microsoft's admin-consent endpoint requires a redirect_uri; omitting it
+    // fails with "AADSTS900971: No reply address provided". Default to the
+    // standard native-client reply URL, which must be registered on the app as
+    // a redirect URI. Override with MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT.
+    const redirectUri = process.env.MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT
+      || authConfig.oauth.adminConsentRedirectUri;
+    url.searchParams.set('redirect_uri', redirectUri);
 
     return {
       adminConsentUrl: url.toString(),
       tenantId: tenant,
       clientId,
+      redirectUri,
       scopes: authConfig.oauth.scope,
     };
   }
