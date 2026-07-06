@@ -70,5 +70,6 @@ outputs/
 
 # Claude Code artifacts
 .claude/
+.omc/
 outlook-mcp.mcpb
 *.mcpb
