@@ -4,8 +4,8 @@
   "version": "1.0.2",
   "description": "Connects your LLM to Outlook with multi-account support. Read and write emails, contacts, and calendar events.",
   "author": {
-    "name": "XenoXilus",
-    "email": "xenoxilus@gmail.com"
+    "name": "XenoXilus and XOGENT",
+    "email": "support@xogent.com"
   },
   "user_config": {
     "azure_client_id": {
