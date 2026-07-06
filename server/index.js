@@ -114,7 +114,7 @@ process.on('uncaughtException', (error) => {
     const server = new Server(
       {
         name: 'outlook-mcp',
-        version: '1.0.0',
+        version: '1.0.2',
       },
       {
         capabilities: {
