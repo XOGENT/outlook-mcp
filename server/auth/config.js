@@ -58,6 +58,12 @@ export const authConfig = {
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
     adminConsentUrl: (tenantId) =>
       `https://login.microsoftonline.com/${tenantId}/adminconsent`,
+    // Reply URL the admin-consent endpoint redirects to after approval. Must be
+    // registered on the app registration's redirect URIs. Microsoft's hosted
+    // native-client page is the safe default (shows the consent result).
+    adminConsentRedirectUri:
+      process.env.MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT
+      || 'https://login.microsoftonline.com/common/oauth2/nativeclient',
     scope: resolveScopes(),
     redirectUri: process.env.MCP_OUTLOOK_REDIRECT_URI || 'http://localhost:0/callback',
   },

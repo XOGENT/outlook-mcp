@@ -39,4 +39,25 @@ describe('TokenManager', () => {
     expect(access).toBe('secret-token-value');
     expect(refresh).toBe('refresh-value');
   });
+
+  // Regression: the storage dir can contain subdirectories (e.g. the legacy
+  // store is rooted at the data dir, which also holds `accounts/`). node-persist's
+  // background expired-keys sweep would readFile() those subdirs and crash with
+  // an unhandled "EISDIR: illegal operation on a directory, read". The interval
+  // must stay disabled so the sweep never runs.
+  it('disables the expired-keys sweep so subdirectories never trigger EISDIR', async () => {
+    const tm = new TokenManager('client-a', 'tenant:oid-nosweep');
+    await tm.storeTokens('access', 'refresh', 3600);
+
+    expect(tm.storage.options.expiredInterval).toBe(false);
+
+    // A directory inside the storage dir would blow up node-persist's dir scan;
+    // prove the scan is exactly what fails, and that we never invoke it.
+    const storageDir = tm.storage.options.dir;
+    fs.mkdirSync(path.join(storageDir, 'accounts'), { recursive: true });
+    await expect(tm.storage.keys()).rejects.toMatchObject({ code: 'EISDIR' });
+
+    // Normal per-key access is unaffected by the sibling subdirectory.
+    expect(await tm.getAccessToken()).toBe('access');
+  });
 });

@@ -45,4 +45,12 @@ describe('requestAdminConsent', () => {
     expect(url.searchParams.get('state')).toBeTruthy();
     expect(result.tenantId).toBe('contoso.com');
   });
+
+  it('always includes a redirect_uri so sign-in does not fail with AADSTS900971', () => {
+    const result = authManagerRegistry.requestAdminConsent({ tenantId: 'contoso.com', clientId: CLIENT });
+    const url = new URL(result.adminConsentUrl);
+    const redirectUri = url.searchParams.get('redirect_uri');
+    expect(redirectUri).toBeTruthy();
+    expect(result.redirectUri).toBe(redirectUri);
+  });
 });
