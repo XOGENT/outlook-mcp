@@ -54,7 +54,7 @@ async function loadRuntimeContext() {
   await import('dotenv/config');
 
   const { authManagerRegistry } = await import('./auth/authManagerRegistry.js');
-  const { getStartupConfig } = await import('./auth/defaultApp.js');
+  const { getStartupConfig, isClientIdConfigured } = await import('./auth/defaultApp.js');
   const { createProtocolError, ErrorCodes, convertErrorToToolError } = await import('./utils/mcpErrorResponse.js');
   const tools = await import('./tools/index.js');
 
@@ -65,6 +65,13 @@ async function loadRuntimeContext() {
   console.error(`Debug: Auth mode = ${startupConfig.authMode}`);
   console.error(`Debug: AZURE_CLIENT_ID = ${process.env.AZURE_CLIENT_ID ? 'SET (BYO)' : 'using default'}`);
   console.error(`Debug: AZURE_TENANT_ID = ${process.env.AZURE_TENANT_ID ? 'SET (BYO)' : 'using organizations'}`);
+  if (!isClientIdConfigured(startupConfig.clientId)) {
+    console.error(
+      'WARNING: No Azure application client ID is configured (using placeholder). '
+      + 'Microsoft sign-in will fail until you set AZURE_CLIENT_ID to a real multi-tenant app. '
+      + 'See README "Multi-tenant OAuth setup".'
+    );
+  }
   console.error('Call outlook_connect_account to sign in, or use an existing connected account.');
 
   return {
@@ -221,6 +228,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await tools.disconnectAccountTool(registry, args);
       case 'outlook_set_default_account':
         return await tools.setDefaultAccountTool(registry, args);
+      case 'outlook_request_admin_consent':
+        return await tools.requestAdminConsentTool(registry, args);
       case 'outlook_list_accessible_mailboxes':
         return await tools.listAccessibleMailboxesTool(registry, args);
       default:

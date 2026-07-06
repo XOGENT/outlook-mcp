@@ -10,15 +10,15 @@
   "user_config": {
     "azure_client_id": {
       "type": "string",
-      "title": "Azure Client ID (Advanced)",
-      "description": "Optional BYO Azure application client ID. Leave empty to use the bundled hosted app.",
+      "title": "Azure Client ID",
+      "description": "Required. Application (client) ID of your multi-tenant Azure AD app. OAuth cannot start without it — see the README Azure Setup guide.",
       "required": false,
       "default": ""
     },
     "azure_tenant_id": {
       "type": "string",
       "title": "Azure Tenant ID (Advanced)",
-      "description": "Optional BYO Azure tenant ID. Leave empty for multi-tenant hosted app.",
+      "description": "Optional. Pin sign-in to a single tenant. Leave empty for multi-tenant.",
       "required": false,
       "default": ""
     },

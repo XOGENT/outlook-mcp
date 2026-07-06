@@ -1,10 +1,20 @@
 import { OutlookAuthManager } from './auth.js';
 import { accountRegistry } from './accountRegistry.js';
 import { LegacyTokenManager } from './tokenManager.js';
-import { getStartupConfig, resolveClientId, resolveAuthAuthority, resolveAuthMode } from './defaultApp.js';
+import {
+  getStartupConfig,
+  resolveClientId,
+  resolveAuthAuthority,
+  resolveAuthMode,
+  isClientIdConfigured,
+  NO_APP_CONFIGURED_MESSAGE,
+  ORGANIZATIONS_AUTHORITY,
+} from './defaultApp.js';
+import { authConfig } from './config.js';
 import { extractAccountClaims } from './jwtUtils.js';
 import { createAuthError } from '../utils/mcpErrorResponse.js';
 import { clearStylingCache, clearSignatureCache } from '../tools/common/sharedUtils.js';
+import crypto from 'crypto';
 
 const pendingAuthSessions = new Map();
 const managerCache = new Map();
@@ -124,6 +134,9 @@ export class AuthManagerRegistry {
   async connectAccount(opts = {}) {
     await this.initialize();
     const clientId = resolveClientId(opts.clientId);
+    if (!isClientIdConfigured(clientId)) {
+      return { success: false, error: createAuthError(NO_APP_CONFIGURED_MESSAGE, true) };
+    }
     const authority = resolveAuthAuthority(opts.tenantId);
     const authMode = resolveAuthMode(clientId, authority);
 
@@ -169,6 +182,43 @@ export class AuthManagerRegistry {
       authority,
       authMode,
     });
+  }
+
+  /**
+   * Build a tenant-wide admin-consent URL for the configured (multi-tenant) app.
+   * An administrator of the target tenant opens this URL once to grant the app
+   * org-wide consent; afterwards users in that tenant can connect normally.
+   * No per-tenant app registration is required.
+   */
+  requestAdminConsent(opts = {}) {
+    const clientId = resolveClientId(opts.clientId);
+    if (!isClientIdConfigured(clientId)) {
+      throw createAuthError(NO_APP_CONFIGURED_MESSAGE, true);
+    }
+
+    const tenant = (opts.tenantId || '').trim();
+    if (!tenant || tenant === ORGANIZATIONS_AUTHORITY) {
+      throw createAuthError(
+        'A specific tenant is required for admin consent. Pass tenantId as the tenant\'s '
+        + 'domain (e.g. contoso.com) or directory (tenant) GUID.',
+        true
+      );
+    }
+
+    const url = new URL(authConfig.oauth.adminConsentUrl(tenant));
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('state', crypto.randomBytes(16).toString('hex'));
+    const redirectUri = process.env.MCP_OUTLOOK_ADMIN_CONSENT_REDIRECT;
+    if (redirectUri) {
+      url.searchParams.set('redirect_uri', redirectUri);
+    }
+
+    return {
+      adminConsentUrl: url.toString(),
+      tenantId: tenant,
+      clientId,
+      scopes: authConfig.oauth.scope,
+    };
   }
 
   async finalizeConnectedAccount({ manager, authResult, clientId, authority, authMode }) {

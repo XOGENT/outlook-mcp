@@ -1,0 +1,28 @@
+import { createSafeResponse } from '../../utils/jsonUtils.js';
+import { convertErrorToToolError } from '../../utils/mcpErrorResponse.js';
+
+/**
+ * Generate a tenant-wide admin-consent URL for the configured multi-tenant app.
+ * Hand the URL to an administrator of the target tenant; once they approve it,
+ * users in that tenant can connect with outlook_connect_account. No per-tenant
+ * app registration is needed.
+ */
+export async function requestAdminConsentTool(registry, args = {}) {
+  try {
+    const { adminConsentUrl, tenantId, clientId, scopes } = registry.requestAdminConsent(args);
+    return createSafeResponse({
+      success: true,
+      tenantId,
+      clientId,
+      scopes,
+      adminConsentUrl,
+      message:
+        `Send this admin-consent URL to an administrator of tenant "${tenantId}". `
+        + 'After they approve it, users in that tenant can run outlook_connect_account. '
+        + 'This grants the app org-wide consent — no per-tenant app registration is required.',
+    });
+  } catch (error) {
+    if (error?.isError) return error;
+    return convertErrorToToolError(error, 'Failed to build admin-consent URL');
+  }
+}

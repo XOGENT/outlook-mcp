@@ -1,32 +1,64 @@
+/**
+ * Delegated Graph scopes that individual users can consent to themselves
+ * (Microsoft Graph "Admin consent required: No"). These are the default so a
+ * tenant that allows user consent needs no admin involvement at all.
+ */
+export const CORE_DELEGATED_SCOPES = [
+  'Mail.Read',
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Mail.Read.Shared',
+  'Mail.ReadWrite.Shared',
+  'Calendars.Read',
+  'Calendars.ReadWrite',
+  'Calendars.Read.Shared',
+  'Calendars.ReadWrite.Shared',
+  'Contacts.Read',
+  'Contacts.ReadWrite',
+  'Tasks.Read',
+  'Tasks.ReadWrite',
+  'User.Read',
+  'MailboxSettings.Read',
+  'Files.Read.All',         // delegated: files the signed-in user can access (user-consentable)
+  'Files.ReadWrite.All',
+  'offline_access',         // required for refresh tokens
+];
+
+/**
+ * SharePoint site scopes. These require TENANT ADMIN consent, so they are
+ * opt-in via OUTLOOK_MCP_ENABLE_SHAREPOINT=true. When enabled, onboard each
+ * tenant with outlook_request_admin_consent before users connect.
+ */
+export const SHAREPOINT_SCOPES = [
+  'Sites.Read.All',
+  'Sites.ReadWrite.All',
+];
+
+/**
+ * Resolve the effective delegated scope string. Defaults to the
+ * admin-consent-free core set; SharePoint scopes and arbitrary extras are opt-in.
+ */
+export function resolveScopes() {
+  const scopes = [...CORE_DELEGATED_SCOPES];
+  if (process.env.OUTLOOK_MCP_ENABLE_SHAREPOINT === 'true') {
+    scopes.push(...SHAREPOINT_SCOPES);
+  }
+  if (process.env.OUTLOOK_MCP_EXTRA_SCOPES) {
+    scopes.push(...process.env.OUTLOOK_MCP_EXTRA_SCOPES.split(/[\s,]+/).filter(Boolean));
+  }
+  // De-duplicate while preserving order.
+  return [...new Set(scopes)].join(' ');
+}
+
 export const authConfig = {
   oauth: {
     authorizeUrl: (tenantId) =>
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
     tokenUrl: (tenantId) =>
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-    scope: [
-      'Mail.Read',
-      'Mail.ReadWrite',
-      'Mail.Send',
-      'Mail.Read.Shared',
-      'Mail.ReadWrite.Shared',
-      'Calendars.Read',
-      'Calendars.ReadWrite',
-      'Calendars.Read.Shared',
-      'Calendars.ReadWrite.Shared',
-      'Contacts.Read',
-      'Contacts.ReadWrite',
-      'Tasks.Read',
-      'Tasks.ReadWrite',
-      'User.Read',
-      'MailboxSettings.Read',
-      // SharePoint and OneDrive access
-      'Sites.Read.All',         // Read all SharePoint sites
-      'Sites.ReadWrite.All',    // Read/write all SharePoint sites
-      'Files.Read.All',         // Read all files user can access
-      'Files.ReadWrite.All',    // Read/write all files user can access
-      'offline_access',         // Required for refresh tokens
-    ].join(' '),
+    adminConsentUrl: (tenantId) =>
+      `https://login.microsoftonline.com/${tenantId}/adminconsent`,
+    scope: resolveScopes(),
     redirectUri: process.env.MCP_OUTLOOK_REDIRECT_URI || 'http://localhost:0/callback',
   },
 
