@@ -85,17 +85,32 @@ describe('migrateInstallDataDir', () => {
     expect(fs.readFileSync(path.join(to, 'accounts', 'registry.json'), 'utf8')).toContain('a@b.com');
   });
 
-  it('does not overwrite an existing new-location store', () => {
+  it('migrates even when the new-location dir exists but has no registry', () => {
+    // Reproduces the real failure: a stray empty ~/.outlook-mcp (e.g. from a
+    // prior registry read) must not block relocation of the real store.
     const from = path.join(root, 'install', '.tokens');
     const to = path.join(root, 'home', '.outlook-mcp');
-    fs.mkdirSync(from, { recursive: true });
-    fs.writeFileSync(path.join(from, 'marker'), 'old');
-    fs.mkdirSync(to, { recursive: true });
-    fs.writeFileSync(path.join(to, 'marker'), 'new');
+    fs.mkdirSync(path.join(from, 'accounts'), { recursive: true });
+    fs.writeFileSync(path.join(from, 'accounts', 'registry.json'), '{"accounts":[{"email":"c@d.com"}]}');
+    fs.mkdirSync(path.join(to, 'accounts'), { recursive: true }); // pre-existing empty target
 
     migrateInstallDataDir(from, to);
 
-    expect(fs.readFileSync(path.join(to, 'marker'), 'utf8')).toBe('new');
+    expect(fs.existsSync(from)).toBe(false);
+    expect(fs.readFileSync(path.join(to, 'accounts', 'registry.json'), 'utf8')).toContain('c@d.com');
+  });
+
+  it('does not overwrite a new-location store that already has a registry', () => {
+    const from = path.join(root, 'install', '.tokens');
+    const to = path.join(root, 'home', '.outlook-mcp');
+    fs.mkdirSync(path.join(from, 'accounts'), { recursive: true });
+    fs.writeFileSync(path.join(from, 'accounts', 'registry.json'), '{"which":"from"}');
+    fs.mkdirSync(path.join(to, 'accounts'), { recursive: true });
+    fs.writeFileSync(path.join(to, 'accounts', 'registry.json'), '{"which":"to"}');
+
+    migrateInstallDataDir(from, to);
+
+    expect(fs.readFileSync(path.join(to, 'accounts', 'registry.json'), 'utf8')).toContain('"which":"to"');
     expect(fs.existsSync(from)).toBe(true);
   });
 
