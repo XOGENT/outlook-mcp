@@ -49,6 +49,9 @@ export async function replyToEmailTool(registry, args) {
     }
 
     const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/reply`, replyPayload);
+    if (result?.isError) {
+      return result;
+    }
 
     return {
       content: [
@@ -109,6 +112,9 @@ export async function replyAllTool(registry, args) {
     }
 
     const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/replyAll`, replyPayload);
+    if (result?.isError) {
+      return result;
+    }
 
     return {
       content: [

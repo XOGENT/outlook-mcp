@@ -46,6 +46,9 @@ export async function forwardEmailTool(registry, args) {
     }
 
     const result = await graphApiClient.postWithRetry(`${mailboxBase}/messages/${messageId}/forward`, forwardPayload);
+    if (result?.isError) {
+      return result;
+    }
 
     return {
       content: [

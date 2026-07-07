@@ -1,7 +1,7 @@
 {
   "dxt_version": "0.1",
   "name": "outlook-mcp",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Connects your LLM to Outlook with multi-account support. Read and write emails, contacts, and calendar events.",
   "author": {
     "name": "XenoXilus and XOGENT",

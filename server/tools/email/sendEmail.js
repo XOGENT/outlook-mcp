@@ -50,10 +50,16 @@ export async function sendEmailTool(registry, args) {
       }));
     }
 
-    await graphApiClient.postWithRetry(`${mailboxBase}/sendMail`, {
+    // makeRequest RETURNS handled errors (it does not throw), so an ambiguous
+    // outcome or a hard failure must be propagated — otherwise we'd falsely
+    // report success and the caller might resend a message that already went.
+    const sendResult = await graphApiClient.postWithRetry(`${mailboxBase}/sendMail`, {
       message,
       saveToSentItems: true,
     });
+    if (sendResult?.isError) {
+      return sendResult;
+    }
 
     // Invalidate styling cache after sending email (user might have changed styling)
     // Don't invalidate signature cache as frequently since signatures change less often
