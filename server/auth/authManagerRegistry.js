@@ -11,6 +11,7 @@ import {
   ORGANIZATIONS_AUTHORITY,
 } from './defaultApp.js';
 import { authConfig } from './config.js';
+import { migrateInstallDataDir } from './dataPaths.js';
 import { extractAccountClaims } from './jwtUtils.js';
 import { createAuthError } from '../utils/mcpErrorResponse.js';
 import { clearStylingCache, clearSignatureCache } from '../tools/common/sharedUtils.js';
@@ -27,6 +28,9 @@ export class AuthManagerRegistry {
 
   async initialize() {
     if (!this.migrated) {
+      // Relocate any install-relative store to the stable per-user data dir
+      // BEFORE reading the registry, so persisted accounts survive restarts.
+      migrateInstallDataDir();
       await this.migrateLegacyTokens();
       this.migrated = true;
     }

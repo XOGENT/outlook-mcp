@@ -1,7 +1,7 @@
 {
   "dxt_version": "0.1",
   "name": "outlook-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Connects your LLM to Outlook with multi-account support. Read and write emails, contacts, and calendar events.",
   "author": {
     "name": "XenoXilus and XOGENT",
@@ -41,6 +41,7 @@
       "env": {
         "AZURE_CLIENT_ID": "${user_config.azure_client_id}",
         "AZURE_TENANT_ID": "${user_config.azure_tenant_id}",
+        "MCP_OUTLOOK_DATA_DIR": "${HOME}/.outlook-mcp",
         "MCP_OUTLOOK_WORK_DIR": "${user_config.download_directory}"
       }
     }
