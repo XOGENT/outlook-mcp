@@ -262,7 +262,7 @@ Personal Microsoft accounts can also register apps in Azure:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MCP_OUTLOOK_DATA_DIR` | No | `.tokens` (local) / `/data` (Docker) | Token storage and account registry directory |
+| `MCP_OUTLOOK_DATA_DIR` | No | `~/.outlook-mcp` (local) / `/data` (Docker) | Token storage and account registry directory |
 | `MCP_OUTLOOK_WORK_DIR` | No | `.downloads` (local) / `/data/downloads` (Docker) | Directory for large attachment downloads |
 | `MCP_OUTLOOK_HEADLESS` | No | `true` in Docker image | Use device-code OAuth instead of browser flow |
 | `AZURE_CLIENT_ID` | **Yes** | placeholder (non-functional) | Azure AD application (client) ID. OAuth cannot start without a real value — see [Azure Setup](#azure-setup-guide) |
@@ -322,7 +322,7 @@ The server uses OAuth 2.0 for secure authentication:
 | **Local Node.js** | PKCE (browser) | Call `outlook_connect_account` — a browser window opens for Microsoft sign-in |
 
 **Token storage:**
-1. Tokens are encrypted and stored under `MCP_OUTLOOK_DATA_DIR` (Docker volume at `/data`, local default `.tokens`)
+1. Tokens are encrypted and stored under `MCP_OUTLOOK_DATA_DIR` (Docker volume at `/data`, local default `~/.outlook-mcp`). This is a stable per-user location — not the install directory — so connections survive extension updates and restarts. An existing store in a pre-1.0.3 `<install>/.tokens` directory is migrated automatically on first startup.
 2. Per-account storage supports multiple connected Microsoft accounts
 3. Automatic token refresh for long-term usage
 4. OS keychain is used when available locally; Docker always uses encrypted file storage
