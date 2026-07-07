@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendEmailTool } from '../../tools/email/sendEmail.js';
 import { createToolError } from '../../utils/mcpErrorResponse.js';
+import { resetSendDedupe } from '../../tools/common/sendDedupe.js';
 
 function mockRegistry(accounts) {
   return {
@@ -23,6 +24,10 @@ function mockRegistry(accounts) {
 }
 
 describe('sendEmailTool', () => {
+  // The dedup guard keeps process-global state; isolate tests that reuse
+  // identical message content (which hashes to the same dedup key).
+  beforeEach(() => resetSendDedupe());
+
   it('requires account when multiple accounts connected', async () => {
     const registry = mockRegistry([
       { accountId: 't1:u1', email: 'a@test.com', userId: 'u1' },
