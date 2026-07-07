@@ -41,6 +41,7 @@
       "env": {
         "AZURE_CLIENT_ID": "${user_config.azure_client_id}",
         "AZURE_TENANT_ID": "${user_config.azure_tenant_id}",
+        "MCP_OUTLOOK_DATA_DIR": "${HOME}/.outlook-mcp",
         "MCP_OUTLOOK_WORK_DIR": "${user_config.download_directory}"
       }
     }
