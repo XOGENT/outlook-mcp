@@ -28,24 +28,22 @@ export function getInstallDataDir() {
 
 // One-time move of a pre-existing install-relative store (<install>/.tokens) to
 // the stable per-user data dir. No-ops when an env override or headless volume
-// is in use, when the store was already migrated, or when there is nothing to
-// migrate. Safe to call on every startup.
+// is in use, or when there is nothing to migrate. Safe to call on every startup.
+//
+// The guard keys off the *registry file*, not the target directory: the target
+// may already exist as an empty/partial dir (e.g. a registry read created
+// `accounts/` before the old store was moved), and that must NOT block the
+// migration — otherwise the accounts stay stranded in the old location.
 export function migrateInstallDataDir(from = getInstallDataDir(), to = getDataDir()) {
   if (process.env.MCP_OUTLOOK_DATA_DIR || isHeadlessMode()) return;
-  const target = to;
-  const legacy = from;
-  if (path.resolve(target) === path.resolve(legacy)) return;
-  if (fs.existsSync(target)) return;
-  if (!fs.existsSync(legacy)) return;
-  ensureDir(path.dirname(target));
-  try {
-    fs.renameSync(legacy, target);
-  } catch (error) {
-    if (error.code !== 'EXDEV') throw error;
-    // Old store lives on a different filesystem — copy then remove.
-    fs.cpSync(legacy, target, { recursive: true });
-    fs.rmSync(legacy, { recursive: true, force: true });
-  }
+  if (path.resolve(from) === path.resolve(to)) return;
+  if (!fs.existsSync(from)) return;
+  // Never clobber a destination that already holds a registry — that store wins.
+  if (fs.existsSync(path.join(to, 'accounts', 'registry.json'))) return;
+  // Copy contents in (merging into any pre-existing empty dir) rather than
+  // renaming, so a partially-created target and cross-filesystem moves both work.
+  fs.cpSync(from, to, { recursive: true, force: false, errorOnExist: false });
+  fs.rmSync(from, { recursive: true, force: true });
 }
 
 export function getAccountsDir() {
