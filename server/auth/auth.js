@@ -89,6 +89,14 @@ export class OutlookAuthManager {
         await this.initializeGraphClient();
         return await this.validateAuthentication();
       }
+      // The access token is missing or expired. If a usable refresh token
+      // exists (the normal case on a cold start after the ~1h access-token
+      // TTL), refresh instead of wrongly reporting the account as unconnected.
+      if (await this.tokenManager.hasRefreshToken()) {
+        await this.refreshAccessToken();
+        await this.initializeGraphClient();
+        return await this.validateAuthentication();
+      }
       if (this.isConnectFlow) {
         return await this.authenticateConnect();
       }
@@ -265,49 +273,56 @@ export class OutlookAuthManager {
   }
 
   async refreshAccessToken() {
+    const refreshToken = await this.tokenManager.getRefreshToken();
+    const tokenTenant = this.getTokenTenantId();
+    const tokenUrl = authConfig.oauth.tokenUrl(tokenTenant);
+
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      scope: authConfig.oauth.scope,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    });
+
+    let response;
     try {
-      const refreshToken = await this.tokenManager.getRefreshToken();
-      const tokenTenant = this.getTokenTenantId();
-      const tokenUrl = authConfig.oauth.tokenUrl(tokenTenant);
-
-      const params = new URLSearchParams({
-        client_id: this.clientId,
-        scope: authConfig.oauth.scope,
-        refresh_token: refreshToken,
-        grant_type: 'refresh_token',
-      });
-
-      const response = await fetch(tokenUrl, {
+      response = await fetch(tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: params.toString(),
       });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw createAuthError(`Token refresh failed: ${error}`, true);
-      }
-
-      const tokenResponse = await response.json();
-      const claims = extractAccountClaims(tokenResponse.access_token);
-      if (claims?.tenantId) {
-        this.tenantId = claims.tenantId;
-      }
-
-      await this.tokenManager.storeTokens(
-        tokenResponse.access_token,
-        tokenResponse.refresh_token || refreshToken,
-        tokenResponse.expires_in
-      );
-
-      await this.initializeGraphClient();
-      return true;
-    } catch (error) {
-      console.error('Token refresh failed:', error);
-      await this.tokenManager.clearTokens();
-      if (error.isError) throw error;
-      throw convertErrorToToolError(error, 'Token refresh failed');
+    } catch (networkError) {
+      // Network/transport failure — the stored refresh token is almost
+      // certainly still valid, so DO NOT clear it; a later retry can succeed.
+      console.error('Token refresh network error:', networkError);
+      throw convertErrorToToolError(networkError, 'Token refresh failed (network)');
     }
+
+    if (!response.ok) {
+      const error = await response.text();
+      // Only discard stored credentials when the refresh token itself is
+      // definitively rejected (revoked/expired/consent withdrawn). Transient
+      // 5xx / throttling must not disconnect the account.
+      if (response.status >= 400 && response.status < 500 && /invalid_grant/i.test(error)) {
+        await this.tokenManager.clearTokens();
+      }
+      throw createAuthError(`Token refresh failed: ${error}`, true);
+    }
+
+    const tokenResponse = await response.json();
+    const claims = extractAccountClaims(tokenResponse.access_token);
+    if (claims?.tenantId) {
+      this.tenantId = claims.tenantId;
+    }
+
+    await this.tokenManager.storeTokens(
+      tokenResponse.access_token,
+      tokenResponse.refresh_token || refreshToken,
+      tokenResponse.expires_in
+    );
+
+    await this.initializeGraphClient();
+    return true;
   }
 
   async initializeGraphClient() {
