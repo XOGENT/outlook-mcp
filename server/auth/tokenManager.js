@@ -252,6 +252,31 @@ export class TokenManager {
     }
   }
 
+  // Non-throwing check for a usable (non-expired) refresh token. Lets the auth
+  // flow decide whether to attempt a refresh before declaring an account
+  // unconnected, without the throw/clear side effects of getRefreshToken().
+  async hasRefreshToken() {
+    try {
+      await this.initialize();
+      const metadata = await this.storage.getItem(TOKEN_METADATA_KEY);
+      if (!metadata || Date.now() > metadata.refreshTokenExpiry) return false;
+
+      const serviceName = this.getKeytarServiceName();
+      const keytarInstance = await getKeytar();
+      if (keytarInstance) {
+        try {
+          const token = await keytarInstance.getPassword(serviceName, REFRESH_TOKEN_ACCOUNT);
+          if (token) return true;
+        } catch {
+          // fall through to fallback storage
+        }
+      }
+      return !!(await this.storage.getItem('fallback_refresh_token'));
+    } catch {
+      return false;
+    }
+  }
+
   async clearTokens() {
     await this.initialize();
     const serviceName = this.getKeytarServiceName();
