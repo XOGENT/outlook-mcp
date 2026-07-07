@@ -1,6 +1,6 @@
 import { Client } from '@microsoft/microsoft-graph-client';
 import { authConfig } from '../auth/config.js';
-import { convertErrorToToolError, createServiceUnavailableError, createRateLimitError, createValidationError } from '../utils/mcpErrorResponse.js';
+import { convertErrorToToolError, createServiceUnavailableError, createRateLimitError, createValidationError, createToolError } from '../utils/mcpErrorResponse.js';
 import { FolderResolver } from './folderResolver.js';
 import { safeStringify } from '../utils/jsonUtils.js';
 
@@ -172,6 +172,12 @@ export class GraphApiClient {
     let retryCount = 0;
     let delay = authConfig.retry.initialDelay; // Start at exactly 1 second
 
+    // Whether it is safe to auto-retry this request after an *ambiguous* failure
+    // (5xx / dropped connection), where the server may already have processed it.
+    // POST is non-idempotent by default (e.g. sendMail would send twice); GET,
+    // PATCH, PUT and DELETE repeat safely. Callers can override per request.
+    const idempotent = options.idempotent ?? (method.toUpperCase() !== 'POST');
+
     while (retryCount <= maxRetries) {
       try {
         let request = this.client.api(path);
@@ -275,9 +281,17 @@ export class GraphApiClient {
         
         // Handle server errors (5xx) with exponential backoff
         if (error.status >= 500 && error.status < 600) {
+          // Non-idempotent writes (POST, e.g. sendMail) must NOT be auto-retried
+          // on a 5xx: a 502/504 often means the request already completed
+          // server-side, so retrying would duplicate it (send the email again).
+          if (!idempotent) {
+            console.error(`Server error ${error.status} on non-idempotent ${method} ${path}; not retrying (outcome unknown) [correlation: ${clientRequestId}]`);
+            return this.createAmbiguousOutcomeError(method, path, error.status);
+          }
+
           console.warn(`Server error ${error.status} on ${method} ${path}. Retry ${retryCount + 1}/${maxRetries} after ${delay}ms [correlation: ${clientRequestId}]`);
           console.warn('Server error details:', safeStringify(errorDetails, 2));
-          
+
           if (retryCount < maxRetries) {
             await this.sleep(delay);
             retryCount++;
@@ -303,10 +317,19 @@ export class GraphApiClient {
           }
         }
         
+        // A dropped connection / timeout with no HTTP status is ambiguous: the
+        // request may have reached Graph and completed. For non-idempotent
+        // writes, surface that explicitly instead of returning a generic error
+        // the caller might blindly retry (which duplicated sends).
+        if (!idempotent && (error.status === undefined || error.status === null)) {
+          console.error(`Transport failure on non-idempotent ${method} ${path}; not retrying (outcome unknown) [correlation: ${clientRequestId}]`);
+          return this.createAmbiguousOutcomeError(method, path, 'connection');
+        }
+
         // Log final error and return MCP error
         console.error(`Graph API error: ${method} ${path} [correlation: ${clientRequestId}]`);
         console.error('Error details:', safeStringify(errorDetails, 2));
-        
+
         return this.handleGraphError(error, errorDetails);
       }
     }
@@ -425,6 +448,22 @@ export class GraphApiClient {
   isRetryableError(statusCode) {
     // Define which errors are retryable
     return [401, 429, 500, 502, 503, 504].includes(statusCode);
+  }
+
+  // Error for a non-idempotent request that failed AFTER the server may have
+  // received it (5xx or dropped connection). The operation might have completed,
+  // so the caller must verify rather than blindly retry (which duplicated sends).
+  createAmbiguousOutcomeError(method, path, cause) {
+    const reason = cause === 'connection'
+      ? 'the connection dropped before a response was received'
+      : `the server returned ${cause}`;
+    return createToolError(
+      `The ${method} request to "${path}" failed because ${reason}. `
+      + 'The operation may have already completed on the server (for example, an '
+      + 'email may have been sent), so it was NOT retried automatically to avoid '
+      + 'duplicates. Verify the result — e.g. check Sent Items — before retrying.',
+      { retryable: false, ambiguousOutcome: true, method, path }
+    );
   }
 
   // Get FolderResolver instance (lazy initialization)
