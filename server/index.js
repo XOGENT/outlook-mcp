@@ -9,6 +9,16 @@ import {
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
+// This is a stdio MCP server: stdout carries the JSON-RPC protocol stream and
+// MUST contain nothing else. A stray console.log (from our code or a dependency)
+// injects plain text into that stream, corrupting it — the client then drops the
+// transport mid-call, which was causing "sent successfully but transport error"
+// and duplicate re-sends on retry. Route all diagnostic logging to stderr.
+// (Only console.log is remapped — process.stdout itself must stay intact
+// because the MCP StdioServerTransport writes its JSON-RPC frames through
+// process.stdout.write.)
+console.log = (...args) => console.error(...args);
+
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   console.error('Stack trace:', reason.stack || 'No stack trace available');

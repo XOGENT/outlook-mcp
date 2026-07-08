@@ -94,7 +94,7 @@ export async function saveFileToDisc(content, filename, options = {}) {
       note: `File saved due to MCP 1MB response limit. Use the file path to access the content.`
     };
     
-    console.log(`File saved to disk: ${filePath} (${fileInfo.sizeFormatted})`);
+    console.error(`File saved to disk: ${filePath} (${fileInfo.sizeFormatted})`);
     return fileInfo;
     
   } catch (error) {
@@ -215,7 +215,7 @@ export async function cleanupOldFiles(maxAge = 24 * 60 * 60 * 1000) { // 24 hour
     }
     
     if (cleaned > 0) {
-      console.log(`Cleaned up ${cleaned} old files from work directory`);
+      console.error(`Cleaned up ${cleaned} old files from work directory`);
     }
     
     return { cleaned, workDir };
