@@ -553,7 +553,7 @@ export async function downloadAttachmentTool(registry, args) {
     const maxMcpResponseSize = 1048576; // 1MB MCP limit
     
     if (responseText.length > maxMcpResponseSize && attachmentInfo.contentBytes) {
-      console.log(`Response size (${formatFileSize(responseText.length)}) exceeds MCP limit, saving to file...`);
+      console.error(`Response size (${formatFileSize(responseText.length)}) exceeds MCP limit, saving to file...`);
       
       // Save the Base64 content to file
       const fileResult = await saveBase64File(

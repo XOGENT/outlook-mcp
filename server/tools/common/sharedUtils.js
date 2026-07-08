@@ -13,10 +13,10 @@ export function clearStylingCache(userId = null, accountId = null) {
   if (userId || accountId) {
     const cacheKey = `styling_${accountId || 'default'}_${userId || 'default'}`;
     stylingCache.delete(cacheKey);
-    console.log(`Cleared styling cache for ${cacheKey}`);
+    console.error(`Cleared styling cache for ${cacheKey}`);
   } else {
     stylingCache.clear();
-    console.log('Cleared all styling cache');
+    console.error('Cleared all styling cache');
   }
 }
 
@@ -25,10 +25,10 @@ export function clearSignatureCache(userId = null, accountId = null) {
   if (userId || accountId) {
     const cacheKey = `signature_${accountId || 'default'}_${userId || 'default'}`;
     signatureCache.delete(cacheKey);
-    console.log(`Cleared signature cache for ${cacheKey}`);
+    console.error(`Cleared signature cache for ${cacheKey}`);
   } else {
     signatureCache.clear();
-    console.log('Cleared all signature cache');
+    console.error('Cleared all signature cache');
   }
 }
 
@@ -404,11 +404,11 @@ async function getUserSignature(graphApiClient) {
     // Check cache first
     const cachedSignature = getCachedSignature(userInfo.id);
     if (cachedSignature && (Date.now() - cachedSignature.timestamp) < SIGNATURE_CACHE_DURATION) {
-      console.log('Using cached signature');
+      console.error('Using cached signature');
       return cachedSignature.signature;
     }
     
-    console.log('Searching for user signature in sent emails');
+    console.error('Searching for user signature in sent emails');
     
     // Search through more sent emails to find genuine signatures (not MCP-generated)
     const sentItems = await graphApiClient.makeRequest('/me/mailFolders/sentitems/messages', {
@@ -430,7 +430,7 @@ async function getUserSignature(graphApiClient) {
         const signature = extractSignatureFromHtml(message.body.content);
         if (signature && signature.trim().length > 10) { // Must be substantial
           foundSignature = signature;
-          console.log('Found genuine signature in email');
+          console.error('Found genuine signature in email');
           break;
         }
       }
@@ -445,7 +445,7 @@ async function getUserSignature(graphApiClient) {
           const autoReplySignature = extractSignatureFromHtml(mailSettings.automaticRepliesSettings.internalReplyMessage);
           if (autoReplySignature) {
             foundSignature = autoReplySignature;
-            console.log('Found signature from mailbox settings');
+            console.error('Found signature from mailbox settings');
           }
         }
       } catch (error) {
@@ -473,11 +473,11 @@ async function extractUserStylingFromEmails(graphApiClient) {
     // Check cache first
     const cachedData = getCachedStyling(userInfo.id);
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
-      console.log('Using cached styling information');
+      console.error('Using cached styling information');
       return cachedData;
     }
     
-    console.log('Fetching fresh styling information from sent emails');
+    console.error('Fetching fresh styling information from sent emails');
     
     // Get recent sent emails to analyze styling patterns
     const sentItems = await graphApiClient.makeRequest('/me/mailFolders/sentitems/messages', {
@@ -496,7 +496,7 @@ async function extractUserStylingFromEmails(graphApiClient) {
     for (const message of sentItems.value) {
       if (message.body?.contentType === 'HTML' && message.body.content) {
         const extracted = extractStylingFromHtml(message.body.content);
-        console.log('Extracted styling from email:', extracted);
+        console.error('Extracted styling from email:', extracted);
         if (extracted.fontFamily) {
           stylingPatterns.fontFamily.set(extracted.fontFamily, 
             (stylingPatterns.fontFamily.get(extracted.fontFamily) || 0) + 1);
@@ -519,8 +519,8 @@ async function extractUserStylingFromEmails(graphApiClient) {
       fontColor: getMostCommon(stylingPatterns.fontColor)
     };
 
-    console.log('Font family patterns found:', Array.from(stylingPatterns.fontFamily.entries()));
-    console.log('Most common styling selected:', mostCommonStyling);
+    console.error('Font family patterns found:', Array.from(stylingPatterns.fontFamily.entries()));
+    console.error('Most common styling selected:', mostCommonStyling);
 
     // Cache the results
     setCachedStyling(userInfo.id, mostCommonStyling);
@@ -567,7 +567,7 @@ export async function applyUserStyling(graphApiClient, content, bodyType) {
     let mailSettings = null;
     try {
       mailSettings = await graphApiClient.makeRequest('/me/mailboxSettings');
-      console.log('Retrieved mailbox settings:', safeStringify(mailSettings, 2));
+      console.error('Retrieved mailbox settings:', safeStringify(mailSettings, 2));
     } catch (error) {
       if (error.message.includes('403') || error.message.includes('ErrorAccessDenied')) {
         console.warn('MailboxSettings.Read permission not granted, using basic styling');
@@ -589,7 +589,7 @@ export async function applyUserStyling(graphApiClient, content, bodyType) {
     let actualStyling = null;
     try {
       actualStyling = await extractUserStylingFromEmails(graphApiClient);
-      console.log('Extracted styling from emails:', actualStyling);
+      console.error('Extracted styling from emails:', actualStyling);
     } catch (error) {
       console.warn('Could not extract styling from emails:', error.message);
     }
